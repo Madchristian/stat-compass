@@ -150,6 +150,15 @@ local function validateCohort(cohort, specID, mode, interface, clientBuild, leve
       if not finite(r) or r < 0 then return false end
     end
   end
+  if cohort.heroMix ~= nil then
+    if not public(cohort.heroMix) or type(cohort.heroMix) ~= "table" then return false end
+    local total = 0
+    for name,n in pairs(cohort.heroMix) do
+      if not plainText(name) or not integer(n, 1, count) then return false end
+      total = total + n
+    end
+    if total > count then return false end
+  end
   return latestRow == cohort.observedAt
 end
 function A.ValidateDataset(data, interface, clientBuild, level, now)
@@ -175,9 +184,29 @@ function A.ValidateDataset(data, interface, clientBuild, level, now)
       if cohort.observedAt > latestCohort then latestCohort = cohort.observedAt end
     end
   end
+  -- optional hero talent cohorts: heroCohorts[specID][heroTreeID][mode]
+  if data.heroCohorts ~= nil then
+    if not public(data.heroCohorts) or type(data.heroCohorts) ~= "table" then return false end
+    for specID,heroes in pairs(data.heroCohorts) do
+      if not integer(specID, 1, 1000000) or not public(heroes) or type(heroes) ~= "table" then return false end
+      for heroID,modes in pairs(heroes) do
+        if not integer(heroID, 1, 1000000) or not public(modes) or type(modes) ~= "table" then return false end
+        for mode,cohort in pairs(modes) do
+          if not public(mode) or not MODES[mode] or not validateCohort(cohort, specID, mode, data.interface, data.clientBuild, data.level, data.collectedAt, now) then return false end
+          if not same(cohort.heroTreeID, heroID) or not plainText(cohort.heroTreeName) then return false end
+          if cohort.observedAt > latestCohort then latestCohort = cohort.observedAt end
+        end
+      end
+    end
+  end
   return latestCohort == data.observedAt
 end
-function A.GetTarget(specID, mode)
+function A.ReadHeroTree()
+  local id = call(safeFunction(C_ClassTalents, "GetActiveHeroTalentSpec"))
+  if integer(id, 1, 1000000) then return id end
+  return nil
+end
+function A.GetTarget(specID, mode, heroID)
   if not integer(specID,1,1000000) or not literal(mode,MODES) then return nil end
   local data = A.releaseData
   -- GetBuildInfo returns numeric client build as a string in result 2 and interface in result 4.
@@ -191,16 +220,20 @@ function A.GetTarget(specID, mode)
   local level = call(UnitLevel, "player")
   local now = call(GetServerTime)
   if not integer(level, 1, 1000) or not A.ValidateDataset(data, interface, clientBuild, level, now) then return nil end
-  local modes = data.cohorts[specID]
-  if not modes then return nil end
-  local cohort = modes[mode]
+  -- a cohort of the player's own hero talent tree wins; otherwise the whole specialization
+  local heroes = integer(heroID, 1, 1000000) and data.heroCohorts and data.heroCohorts[specID]
+  local cohort = heroes and heroes[heroID] and heroes[heroID][mode]
+  if not cohort then
+    local modes = data.cohorts[specID]
+    cohort = modes and modes[mode]
+  end
   if not cohort then return nil end
   local count = #cohort.observations
   local result = {band={}, range={}, rating={}}
-  local function summary(field)
+  local function summary(field, read)
     local sum, values = 0, {}
     for i=1,count do
-      local value = cohort.observations[i][field]
+      local value = read and read(cohort.observations[i]) or cohort.observations[i][field]
       sum = sum + (value - sum) / i
       values[i] = value
     end
@@ -208,6 +241,16 @@ function A.GetTarget(specID, mode)
     if not finite(sum) then return nil end
     return sum, values
   end
+  -- Budget share: a stat's rating as percent of the row's four secondary ratings. Gear level moves
+  -- the budget, not the split, so shares show the direction a player builds in.
+  local budgets = {}
+  for i=1,count do
+    local row, total = cohort.observations[i], 0
+    for j=1,#STATS do total = total + row[RATINGS[STATS[j]]] end
+    budgets[row] = total
+    if not (total > 0) then budgets = nil; break end
+  end
+  if budgets then result.share = {} end
   for j=1,#STATS do
     local key = STATS[j]
     local mean, values = summary(key)
@@ -218,9 +261,20 @@ function A.GetTarget(specID, mode)
     result.range[key] = {min=values[1], max=values[count]}
     local ratingMean, ratings = summary(RATINGS[key])
     if not ratingMean then return nil end
-    result.rating[key] = {mean=ratingMean, min=ratings[1], max=ratings[count]}
+    result.rating[key] = {mean=ratingMean, min=ratings[1], max=ratings[count],
+      low=ratings[math.ceil(count*0.25)], high=ratings[math.ceil(count*0.75)]}
+    if budgets then
+      local field = RATINGS[key]
+      local shareMean, shares = summary(nil, function(row) return row[field] / budgets[row] * 100 end)
+      if not shareMean then return nil end
+      result.share[key] = {mean=shareMean, min=shares[1], max=shares[count],
+        low=shares[math.ceil(count*0.25)], high=shares[math.ceil(count*0.75)]}
+    end
   end
   result.sample = count
+  result.heroTreeID = cohort.heroTreeID
+  result.heroTreeName = cohort.heroTreeName
+  result.heroMix = cohort.heroMix
   result.selectedCount = cohort.selectedCount
   result.validCount = cohort.validCount
   result.collectedAt = data.collectedAt
@@ -238,9 +292,85 @@ function A.GetTarget(specID, mode)
   result.permission = data.permission
   return result
 end
+-- Combat rating IDs as the Character window uses them: crit is the best of melee/ranged/spell,
+-- haste likewise; mastery 26 (checked in game) and versatility (damage done) 29.
+local RATING_IDS = {crit={9,10,11}, haste={18,19,20}, mastery={26}, versatility={29}}
+function A.ReadRatings()
+  local fn = GetCombatRating
+  local ratings = {}
+  for j=1,#STATS do
+    local key = STATS[j]
+    local best
+    for _,id in ipairs(RATING_IDS[key]) do
+      local value = call(fn, id)
+      if finite(value) and value >= 0 and (not best or value > best) then best = value end
+    end
+    ratings[key] = best
+  end
+  return ratings
+end
+-- The bar axis is a display scale, not a game cap: the larger of the cohort's top rating and the
+-- player's own, plus 10%, rounded up to 50. Its provenance says exactly that.
+local AXIS_HEADROOM, AXIS_STEP = 1.1, 50
+function A.RatingComparison(target, ratings)
+  local result = {}
+  for j=1,#STATS do
+    local key = STATS[j]
+    local current = ratings and finite(ratings[key]) and ratings[key] or nil
+    local ref = target and target.rating and target.rating[key]
+    if ref then
+      local top = ref.max
+      if current and current > top then top = current end
+      local axis = math.max(AXIS_STEP, math.ceil(top * AXIS_HEADROOM / AXIS_STEP) * AXIS_STEP)
+      result[key] = {currentRating=current, axisMaxRating=axis, axisVerified=true,
+        axisProvenance="scale: max(EU top " .. target.sample .. " maximum, own rating) + 10%",
+        -- lowRating/highRating: nearest-rank quartiles, where the middle half of the cohort sits
+        reference={minRating=ref.min, meanRating=ref.mean, maxRating=ref.max, lowRating=ref.low, highRating=ref.high},
+        sampleCount=target.sample, sourceStatus="verified"}
+    else
+      result[key] = {currentRating=current, sourceStatus="unavailable"}
+    end
+  end
+  return result
+end
+-- The same comparison as budget shares (percent of the four secondary ratings), which does not
+-- depend on item level. The axis follows the rating rule but in 5-point steps, capped at 100.
+function A.ShareComparison(target, ratings)
+  local total, own = 0, {}
+  for j=1,#STATS do
+    local value = ratings and ratings[STATS[j]]
+    if not finite(value) then total = nil; break end
+    total = total + value
+  end
+  if total and total > 0 then
+    for j=1,#STATS do own[STATS[j]] = ratings[STATS[j]] / total * 100 end
+  end
+  local result = {}
+  for j=1,#STATS do
+    local key = STATS[j]
+    local current = own[key]
+    local ref = target and target.share and target.share[key]
+    if ref then
+      local top = ref.max
+      if current and current > top then top = current end
+      local axis = math.min(100, math.max(5, math.ceil(top * AXIS_HEADROOM / 5) * 5))
+      result[key] = {currentShare=current, axisMaxShare=axis, axisVerified=true,
+        axisProvenance="scale: max(EU top " .. target.sample .. " maximum share, own share) + 10%",
+        reference={minShare=ref.min, meanShare=ref.mean, maxShare=ref.max, lowShare=ref.low, highShare=ref.high},
+        sampleCount=target.sample, sourceStatus="verified"}
+    else
+      result[key] = {currentShare=current, sourceStatus="unavailable"}
+    end
+  end
+  return result
+end
 function A.Snapshot()
   local specID, specName = A.ReadSpecInfo()
-  return {specID=specID, specName=specName, current=A.ReadStats(), target=A.GetTarget(specID, A.settings.mode)}
+  local heroID = A.ReadHeroTree()
+  local target = A.GetTarget(specID, A.settings.mode, heroID)
+  local ratings = A.ReadRatings()
+  return {specID=specID, specName=specName, heroTreeID=heroID, current=A.ReadStats(), target=target,
+    ratingComparison=A.RatingComparison(target, ratings), shareComparison=A.ShareComparison(target, ratings)}
 end
 function A.Flush()
   A.pending = false

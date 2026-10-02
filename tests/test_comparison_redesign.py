@@ -17,11 +17,10 @@ def test_rating_axis_and_percent_fallback():
       assert(math.abs(r.fill.width/r.barWidth-0.4)<0.001)
       assert(r.markerCurrent.point[4]>r.markerMax.point[4])
       assert(r.fill.color[1]==r.neutralColor[1])
-      assert(r.interval.shown and r.interval.layer=="BORDER")
-      assert(a.status.text:find("27") and not a.status.text:find("50"))
-      r.hoverFrame.scripts.OnEnter(r.hoverFrame)
-      assert(GameTooltip.text:find("arithmetic mean") and GameTooltip.text:find("27"))
-      assert(GameTooltip.text:find("verified synthetic cap"))
+      assert(r.glow.shown and r.glow.color[4]>0)
+      assert(a.metadataText==a.Text("referenceUnavailable","enUS"))
+      r.hit.mean.scripts.OnEnter(r.hit.mean)
+      assert(GameTooltip.text:find("Cohort average") and GameTooltip.text:find("+200"))
       a.SetSkin("flat"); a.SetSkin("default")
       assert(r.markerMean.shown and r.fill.shown and r.fill.texture==[[Interface\Buttons\WHITE8X8]])
     ''')
@@ -51,9 +50,10 @@ def test_invalid_axis_partial_and_symmetric_color():
       item.reference={minRating=500,meanRating=500,maxRating=500}; item.currentRating=500
       a.Render({ratingComparison={crit=item}})
       assert(r.markerMin.shown and r.markerMean.shown and r.markerMax.shown)
-      assert(r.markerMin.point[1]~=r.markerMean.point[1])
+      assert(r.markerMin.point[1]==r.markerMean.point[1] and r.markerMin.point[4]==r.markerMean.point[4])
+      assert(not r.glow.shown)
       item.reference={minRating=100,meanRating=500}; a.Render({ratingComparison={crit=item}})
-      assert(r.markerMin.shown and r.markerMean.shown and not r.markerMax.shown and not r.interval.shown)
+      assert(r.markerMin.shown and r.markerMean.shown and not r.markerMax.shown and not r.glow.shown)
     ''')
 
 

@@ -16,7 +16,7 @@ def shown():
     return lua
 
 
-@pytest.mark.parametrize("owner", ["a.rows[1].hoverFrame", "a.panel"])
+@pytest.mark.parametrize("owner", ["a.rows[1].hit.current", "a.metadataHit"])
 @pytest.mark.parametrize("action", ["a.Flush()", "frame.scripts.OnLeave(frame)", "PaperDollFrame:Hide()"])
 def test_foreign_tooltip_survives_cached_hover(owner, action):
     run(shown(), f'''
@@ -53,7 +53,7 @@ def test_minimap_preserves_foreign_tooltip(action):
     ''')
 
 
-@pytest.mark.parametrize("owner", ["a.rows[1].hoverFrame", "a.panel"])
+@pytest.mark.parametrize("owner", ["a.rows[1].hit.current", "a.metadataHit"])
 def test_owned_tooltip_refreshes_and_hides(owner):
     run(shown(), f'''
       local a=StatCompass; local frame={owner}
@@ -69,7 +69,7 @@ def test_owned_tooltip_refreshes_and_hides(owner):
 @pytest.mark.parametrize("result", ["return {secret=true}", "error('unreadable owner')", "return nil"])
 def test_unreadable_ownership_fails_closed(result):
     run(shown(), f'''
-      local a=StatCompass; local frame=a.rows[1].hoverFrame
+      local a=StatCompass; local frame=a.rows[1].hit.current
       frame.scripts.OnEnter(frame)
       GameTooltip.IsOwned=function() {result} end
       GameTooltip:SetText("untouched")

@@ -1,6 +1,8 @@
 StatCompass = StatCompass or {}
 StatCompass.locale = {
   enUS = {
+    middle50 = "Middle 50 %% of top players: %s – %s",
+    referenceUnavailable = "No verified rating reference is available. Current percentages are shown separately.",
     skin = "Skin", minimap = "Minimap button", shown = "Shown", hidden = "Hidden",
     resetPresentation = "Reset appearance",
     appearanceHelp = "Appearance changes apply immediately. The equipment panel has the same skin controls.",
@@ -18,8 +20,13 @@ StatCompass.locale = {
     sampleUncertainty = "The sample may not represent all players.",
     distributionHelp = "Rating points. The cohort arithmetic mean is descriptive, not a personal optimum or simulation. Color shows distance from the mean within the observed range, not performance.",
     unavailableHelp = "No verified rating cap is available. Current percentages are shown without a rating bar.",
+    referenceAvailable = "Observed rating reference available", ownRating = "Your current rating", ownPercent = "Current percent", observedLower = "Lower observed rating",
+    cohortAverage = "Cohort average", observedUpper = "Upper observed rating", meanDifference = "Difference from average",
+    glowCloseness = "Glow shows closeness to the cohort average within the observed spread.",
   },
   deDE = {
+    middle50 = "Mittlere 50 %% der Top-Spieler: %s – %s",
+    referenceUnavailable = "Keine geprüfte Wertungsverteilung verfügbar. Aktuelle Prozentwerte erscheinen separat.",
     skin = "Design", minimap = "Minikartensymbol", shown = "Sichtbar", hidden = "Ausgeblendet",
     resetPresentation = "Darstellung zurücksetzen",
     appearanceHelp = "Änderungen gelten sofort. Das Ausrüstungsfenster bietet dieselbe Designauswahl.",
@@ -37,6 +44,9 @@ StatCompass.locale = {
     sampleUncertainty = "Die Stichprobe muss nicht alle Spieler repräsentieren.",
     distributionHelp = "Wertungspunkte. Der arithmetische Mittelwert beschreibt die Gruppe; er ist kein persönliches Optimum oder eine Simulation. Die Farbe zeigt den Abstand zum Mittelwert innerhalb der beobachteten Spanne, nicht die Leistung.",
     unavailableHelp = "Keine geprüfte Wertungsgrenze verfügbar. Aktuelle Prozentwerte erscheinen ohne Wertungsbalken.",
+    referenceAvailable = "Beobachtete Wertungsverteilung verfügbar", ownRating = "Aktuelle Wertung", ownPercent = "Aktueller Prozentwert", observedLower = "Niedrigste beobachtete Wertung",
+    cohortAverage = "Gruppendurchschnitt", observedUpper = "Höchste beobachtete Wertung", meanDifference = "Abstand zum Durchschnitt",
+    glowCloseness = "Das Leuchten zeigt die Nähe zum Gruppendurchschnitt innerhalb der beobachteten Streuung.",
   },
 }
 function StatCompass.Text(key, locale)

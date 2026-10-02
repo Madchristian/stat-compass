@@ -27,13 +27,20 @@ function Font:GetWidth() return self.width end
 function Font:SetJustifyH(value) self.justify=value end
 function Font:SetText(value) self.text=value end
 function Font:SetTextColor(...) self.color={...} end
+function Font:GetTextColor() return unpack(self.color or {1,0.82,0,1}) end
 function Font:Show() self.shown=true end
 function Font:Hide() self.shown=false end
+function Font:GetFont() return self.fontPath or "Fonts\\FRIZQT__.TTF", self.fontSize or (self.template=="GameFontNormalLarge" and 18 or 12), self.fontFlags or "" end
+function Font:SetFont(path,size,flags) self.fontPath=path; self.fontSize=size; self.fontFlags=flags; return true end
+function Font:GetText() return self.text end
+function Font:GetEffectiveScale() return self.parent:GetEffectiveScale() end
+function Font:IsVisible() return self.shown~=false and self.parent:IsVisible() end
 function Font:GetStringWidth()
-  local _,continuations=string.gsub(self.text,"[\128-\191]","")
-  return (#self.text-continuations)*(self.template=="GameFontNormalLarge" and 9 or 7)
+  local _,continuations=string.gsub(self.text or "","[\128-\191]","")
+  local _,size=self:GetFont()
+  return (#(self.text or "")-continuations)*size*0.55
 end
-function Font:GetStringHeight() return self.template=="GameFontNormalLarge" and 18 or 15 end
+function Font:GetStringHeight() local _,size=self:GetFont(); return size end
 local Frame = {}
 Frame.__index = Frame
 function Frame:SetSize(w,h)
@@ -65,6 +72,8 @@ function Frame:GetRight() if self.right then return self.right end; return self:
 function Frame:GetTop() if self.top then return self.top end; local _,y=anchor(self); return y or 900 end
 function Frame:GetBottom() if self.bottom then return self.bottom end; return self:GetTop()-(self.height or 600) end
 function Frame:GetHeight() return self.height end
+function Frame:GetFrameLevel() return self.frameLevel or (self.parent and self.parent.GetFrameLevel and self.parent:GetFrameLevel()+1) or 0 end
+function Frame:SetFrameLevel(level) self.frameLevel=level end
 function Frame:GetEffectiveScale() return (self.scale or 1)*((self.parent and self.parent:GetEffectiveScale()) or 1) end
 function Frame:SetScale(scale) self.scale=scale end
 function Frame:SetBounds(left,right,bottom,top)
@@ -77,8 +86,12 @@ function Frame:CreateTexture(_,layer,_,sublevel)
 end
 function Frame:CreateFontString(_,_,template)
   widgets.fonts=widgets.fonts+1
-  return setmetatable({template=template}, Font)
+  local font=setmetatable({template=template,parent=self}, Font)
+  self.regions=self.regions or {}; table.insert(self.regions,font)
+  return font
 end
+function Frame:GetRegions() return unpack(self.regions or {}) end
+function Frame:GetChildren() return unpack(self.children or {}) end
 function Frame:SetScript(name,fn) self.scripts[name]=fn end
 function Frame:HookScript(name,fn) self.hooks[name]=fn end
 function Frame:RegisterEvent(name) self.events[name]=true end
@@ -233,7 +246,7 @@ def test_pending_callback_hide_reopen(lua):
       assert(reads==2)
       RunCallbacks()
       assert(reads==2)
-      assert(widgets.frames==13) -- 2 Blizzard frames + event + panel + 5 buttons + 4 row hover frames
+      assert(widgets.frames==50) -- native controls plus value, marker and four local band hit frames
     ''')
 
 def test_settings_and_skins(lua):

@@ -1,6 +1,6 @@
 from tests.test_addon import load_runtime, run
 
-def test_mean_stem_does_not_depend_on_mock_only_shown_field():
+def test_mean_marker_does_not_depend_on_mock_only_shown_field():
     lua=load_runtime()
     run(lua, '''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
@@ -9,7 +9,7 @@ def test_mean_stem_does_not_depend_on_mock_only_shown_field():
       r.markerMean.shown=nil
       A.Render({ratingComparison={crit={currentRating=500,axisMaxRating=1000,axisVerified=true,
         axisProvenance="synthetic",sourceStatus="verified",reference={minRating=400,meanRating=500,maxRating=600}}}})
-      assert(r.markerMean.actualShown and r.meanStem.shown, "native textures have no shown field")
+      assert(r.markerMean.actualShown and r.outline.mean.shown, "native textures have no shown field")
     ''')
 
 def test_nearer_mean_increases_luminance_for_each_stat():

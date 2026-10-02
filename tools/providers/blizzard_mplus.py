@@ -210,7 +210,10 @@ def playable_specs(client):
         detail = client.get(f"/data/wow/playable-specialization/{spec_id}", "static-eu") or {}
         specs[spec_id] = {"name": ref.get("name") or detail.get("name"),
                           "class": (detail.get("playable_class") or {}).get("name"),
-                          "role": (detail.get("role") or {}).get("type")}
+                          "role": (detail.get("role") or {}).get("type"),
+                          # the official hero talent trees of this spec, including ones nobody at the top plays
+                          "heroTrees": sorted((t["id"], t.get("name")) for t in detail.get("hero_talent_trees", [])
+                                              if _id((t or {}).get("id")))}
     if not specs:
         raise BlizzardError("empty specialization index")
     return specs
@@ -388,7 +391,18 @@ class Certifier:
         self.client, self.ranker, self.dungeons, self.bounds = client, ranker, dungeons, bounds
         self.realm_to_cr, self.season_id, self.max_level, self.ilvl_gap = realm_to_cr, season_id, max_level, ilvl_gap
         self.max_profiles, self.workers, self.untimed_ceiling = max_profiles, workers, 0.0
-        self.lock, self.profiles, self.checks = threading.Lock(), {}, {}
+        self.lock, self.profiles, self.checks, self.heroes, self.hero_times = threading.Lock(), {}, {}, {}, {}
+
+    def hero_of(self, char_id):
+        """(active spec ID, hero tree ID, hero tree name) from /specializations; one request, cached."""
+        if char_id not in self.heroes:
+            realm, name, _ = self.ranker.identity[char_id]
+            payload = self.client.get(character_path(realm, name, "/specializations"), "profile-eu") or {}
+            hero = payload.get("active_hero_talent_tree") or {}
+            self.heroes[char_id] = (_id((payload.get("active_specialization") or {}).get("id")), _id(hero.get("id")),
+                                    hero.get("name") if isinstance(hero.get("name"), str) else None)
+            self.hero_times[char_id] = int(time.time())
+        return self.heroes[char_id]
 
     def profile(self, char_id):
         if char_id not in self.profiles:
@@ -422,21 +436,44 @@ class Certifier:
                        for d in self.dungeons) for cr in crs)
 
     def check(self, char_id, spec_id):
+        """Full eligibility; the cheap /specializations lookup runs first and rejects most players."""
         key = (char_id, spec_id)
         if key not in self.checks:
-            realm, name, _ = self.ranker.identity[char_id]
-            stats, reason = verify(self.client, {"id": char_id, "realm": realm, "name": name}, spec_id, self.max_level)
-            self.checks[key] = stats if stats is not None else reason
+            active, hero_id, hero_name = self.hero_of(char_id)
+            if active != spec_id:
+                self.checks[key] = "activeSpec"
+            else:
+                realm, name, _ = self.ranker.identity[char_id]
+                stats, reason = verify(self.client, {"id": char_id, "realm": realm, "name": name}, spec_id, self.max_level)
+                if stats is not None:
+                    stats["heroTree"] = {"id": hero_id, "name": hero_name} if hero_id else None
+                self.checks[key] = stats if stats is not None else reason
         return self.checks[key]
 
-    def run(self, spec_id, *, target):
+    def eligible(self, char_id, spec_id, hero_id=None):
+        """Check result for the cohort: a dict when usable, otherwise the exclusion reason."""
+        if hero_id is not None:
+            active, hero, _ = self.hero_of(char_id)
+            if active != spec_id:
+                return "activeSpec"
+            if hero != hero_id:
+                return "heroTree"
+        return self.check(char_id, spec_id)
+
+    def run(self, spec_id, *, target, hero_id=None, minimum=None, max_walk=None):
+        """Certified top `target` of a spec, or of one hero talent tree within it.
+
+        A hero cohort walks at most `max_walk` ranked players and is dropped below `minimum`."""
         chars = [c for (s, c) in self.ranker.best if s == spec_id]
         excluded, profiles_used = {}, 0
         while True:
             scored = {c: self.interval(spec_id, c) for c in chars}
             order = sorted(chars, key=lambda c: (-scored[c][0], c))
-            chosen, walked, excluded = self._walk(order, spec_id, target)
-            tau = scored[chosen[-1]][0] if len(chosen) == target else 0.0
+            chosen, walked, excluded = self._walk(order, spec_id, target, hero_id, max_walk)
+            if minimum and len(chosen) < minimum:
+                return [], Counter(excluded.values()), {"candidatesTried": walked, "certified": False,
+                                                        "insufficient": len(chosen)}
+            tau = scored[chosen[-1]][0] if chosen else 0.0
             chosen_set = set(chosen)
             # selected players get their profile too, so their scores (and order) become exact
             unresolved = sorted((c for c in chars if c not in self.profiles and (c in chosen_set or (
@@ -450,7 +487,7 @@ class Certifier:
         # still above the threshold after the profile: only an eligibility check can rule them out
         open_chars = [c for c in chars if c not in chosen_set and c not in excluded and scored[c][1] > tau]
         if len(open_chars) <= 100:  # beyond that the bounds are too loose to be worth resolving one by one
-            open_chars = [c for c in open_chars if isinstance(self.check(c, spec_id), dict)]
+            open_chars = [c for c in open_chars if isinstance(self.eligible(c, spec_id, hero_id), dict)]
         reasons = Counter(excluded.values())
         observations = [dict(self.check(c, spec_id), rank=i, score=round(scored[c][0], 3),
                              exact=scored[c][0] == scored[c][1]) for i, c in enumerate(chosen, 1)]
@@ -461,14 +498,14 @@ class Certifier:
             "exactScores": sum(o["exact"] for o in observations),
             "certified": len(chosen) == target and not open_chars and unseen <= tau}
 
-    def _walk(self, order, spec_id, target):
+    def _walk(self, order, spec_id, target, hero_id=None, max_walk=None):
         """Walk the ranking by lower bound; ineligible players are replaced from further down."""
         picked, excluded, walked = [], {}, 0
         for c in order:
-            if len(self._item_level_filter(picked, spec_id)) >= target:
+            if len(self._item_level_filter(picked, spec_id)) >= target or (max_walk and walked >= max_walk):
                 break
             walked += 1
-            result = self.check(c, spec_id)
+            result = self.eligible(c, spec_id, hero_id)
             if isinstance(result, dict):
                 picked.append(c)
             else:
@@ -485,7 +522,8 @@ class Certifier:
                                                        and self.checks[(c, spec_id)]["itemLevel"] >= floor)]
 
 
-STATE_VERSION = 1
+STATE_VERSION = 2
+HERO_MAX_AGE = 8 * 86400  # a weekly run still reuses last week's lookups
 STATE_MAX_AGE = 27 * 86400  # identities may be kept at most 30 days under Blizzard's terms
 
 
@@ -497,12 +535,15 @@ def current_period(client):
     return period
 
 
-def save_state(path, ranker, *, season_id, closed, floors, dungeons, created_at):
+def save_state(path, ranker, *, season_id, closed, floors, dungeons, created_at, heroes=None, hero_times=None,
+               best=None, identity=None):
     """Aggregated best runs of closed weeks. Contains character identities: private cache only."""
     payload = {"version": STATE_VERSION, "season": season_id, "createdAt": created_at, "minRating": ranker.min_rating,
                "closed": sorted(closed), "dungeons": sorted(dungeons), "floors": floors,
-               "best": [[spec, char, {str(d): r for d, r in dungeons_.items()}] for (spec, char), dungeons_ in ranker.best.items()],
-               "identity": {str(c): list(v) for c, v in ranker.identity.items()}}
+               "best": [[spec, char, {str(d): r for d, r in dungeons_.items()}]
+                        for (spec, char), dungeons_ in (ranker.best if best is None else best).items()],
+               "identity": {str(c): list(v) for c, v in (ranker.identity if identity is None else identity).items()},
+               "heroes": {str(c): [list(v), (hero_times or {}).get(c, 0)] for c, v in (heroes or {}).items()}}
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     with gzip.open(tmp, "wt", encoding="utf-8") as handle:
@@ -511,7 +552,7 @@ def save_state(path, ranker, *, season_id, closed, floors, dungeons, created_at)
 
 
 def load_state(path, *, season_id, min_rating, now):
-    """Return (ranker, closed periods, floors, dungeons, createdAt) or None when unusable."""
+    """Return (ranker, closed periods, floors, dungeons, createdAt, heroes, hero times) or None when unusable."""
     if path is None or not path.is_file():
         return None
     try:
@@ -528,7 +569,9 @@ def load_state(path, *, season_id, min_rating, now):
         ranker.best[(spec, char)] = {int(d): r for d, r in dungeons.items()}
     ranker.identity = {int(c): tuple(v) for c, v in payload["identity"].items()}
     floors = [tuple(f) for f in payload["floors"]]
-    return ranker, set(payload["closed"]), floors, payload["dungeons"], payload["createdAt"]
+    heroes = {int(c): tuple(v[0]) for c, v in payload.get("heroes", {}).items()}
+    hero_times = {int(c): v[1] for c, v in payload.get("heroes", {}).items()}
+    return ranker, set(payload["closed"]), floors, payload["dungeons"], payload["createdAt"], heroes, hero_times
 
 
 def _pct(block):
@@ -623,7 +666,38 @@ def _range(values):
     return [round(min(values), 2), round(max(values), 2)] if values else None
 
 
-def build_report(*, season_id, periods, realms, specs, scan_stats, ranking, fallback, verified, target, minimum, client):
+def _cohort_summary(valid):
+    return {"valid": len(valid),
+            "statRanges": {k: _range([v[k] for v in valid]) for k in STAT_KEYS},
+            "statMeans": {k: round(sum(v[k] for v in valid) / len(valid), 2) if valid else None for k in STAT_KEYS},
+            "ratingRanges": {k: _range([v["ratings"][k] for v in valid]) for k in STAT_KEYS},
+            "itemLevelRange": _range([v["itemLevel"] for v in valid])}
+
+
+def hero_popularity(rows, heroes, spec_id):
+    """Hero tree counts over the unbroken top of a spec ranking whose trees are known.
+
+    Walks the ranking from rank 1 and stops at the first player whose tree was never looked up, so
+    the sample is a clean "top N" rather than a mix of ranks. Players now in another spec are skipped."""
+    counts, sample = Counter(), 0
+    for row in rows:
+        info = heroes.get(row["id"])
+        if info is None:
+            break
+        active, _, name = info
+        if active != spec_id:
+            continue
+        counts[name or "unknown"] += 1
+        sample += 1
+    return {"sample": sample, "trees": dict(counts.most_common())}
+
+
+def hero_mix(valid):
+    return dict(Counter((v.get("heroTree") or {}).get("name") or "unknown" for v in valid))
+
+
+def build_report(*, season_id, periods, realms, specs, scan_stats, ranking, fallback, verified, target, minimum, client,
+                 heroes=None, popularity=None):
     rows = []
     for spec_id, meta in sorted(specs.items(), key=lambda kv: ((kv[1]["class"] or ""), kv[1]["name"] or "")):
         ranked = ranking.get(spec_id, [])
@@ -638,7 +712,11 @@ def build_report(*, season_id, periods, realms, specs, scan_stats, ranking, fall
                      "statRanges": {k: _range([v[k] for v in valid]) for k in STAT_KEYS},
                      "statMeans": {k: round(sum(v[k] for v in valid) / len(valid), 2) if valid else None for k in STAT_KEYS},
                      "ratingRanges": {k: _range([v["ratings"][k] for v in valid]) for k in STAT_KEYS},
-                     "itemLevelRange": _range([v["itemLevel"] for v in valid])})
+                     "itemLevelRange": _range([v["itemLevel"] for v in valid]),
+                     "heroMix": hero_mix(valid),
+                     "heroPopularity": (popularity or {}).get(spec_id),
+                     "heroCohorts": {str(h): dict(name=name, certification=cert_, **_cohort_summary(rows))
+                                     for h, (name, rows, cert_) in (heroes or {}).get(spec_id, {}).items()}})
     sizes = scan_stats["sizes"]
     return {"generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"), "region": "EU",
             "season": season_id, "periods": periods, "connectedRealms": len(realms), "dungeons": scan_stats["dungeons"],
@@ -654,7 +732,7 @@ def build_report(*, season_id, periods, realms, specs, scan_stats, ranking, fall
             "specsEnough": sum(r["enough"] for r in rows), "specsTotal": len(rows),
             "requests": client.requests, "cacheHits": client.cache_hits,
             "weeksFromState": scan_stats.get("weeksFromState", 0),
-            "httpStatus": {str(k): v for k, v in sorted(client.status_counts.items())},
+            "httpStatus": {str(k): v for k, v in sorted(client.status_counts.items(), key=lambda kv: str(kv[0]))},
             "specs": rows}
 
 
@@ -666,6 +744,10 @@ def main():
     parser.add_argument("--max-level", type=int, default=90, help="required character level (0 disables)")
     parser.add_argument("--min-run-rating", type=float, default=300.0,
                         help="ignore leaderboard runs rated below this; it is added to every upper bound, so results stay exact")
+    parser.add_argument("--hero-walk", type=int, default=150,
+                        help="ranked players checked at most per hero talent cohort (mismatches cost one request)")
+    parser.add_argument("--hero-walk-deep", type=int, default=500,
+                        help="second, deeper walk for hero trees that found too few players in the first")
     parser.add_argument("--max-profiles", type=int, default=600, help="season profiles fetched per spec to tighten bounds")
     parser.add_argument("--observations", type=Path, help="identity-free per-spec observations for the Data.lua generator")
     parser.add_argument("--ilvl-gap", type=int, default=10, help="drop observations below cohort median item level minus this (0 disables)")
@@ -701,8 +783,10 @@ def main():
     closed = [p for p in periods if p < week]
     state = load_state(args.state, season_id=season_id, min_rating=args.min_run_rating, now=now)
     scan_stats = new_scan_stats()
+    state_heroes, state_hero_times = {}, {}
     if state:
-        ranker, done, floors, dungeons, created_at = state
+        ranker, done, floors, dungeons, created_at = state[:5]
+        state_heroes, state_hero_times = state[5], state[6]
         scan_stats["floors"], scan_stats["dungeons"] = list(floors), list(dungeons)
         log(f"state from {datetime.fromtimestamp(created_at, timezone.utc):%Y-%m-%d}: {len(done)} closed weeks cached")
     else:
@@ -710,10 +794,14 @@ def main():
     todo = [p for p in closed if p not in done]
     if todo:
         scan(client, realms, todo, ranker, workers=args.workers, progress=log, stats=scan_stats)
+    closed_floors = list(scan_stats["floors"])
     if args.state:
         # saved before the current week is added: only finished weeks are reusable
-        save_state(args.state, ranker, season_id=season_id, closed=done | set(todo), floors=scan_stats["floors"],
-                   dungeons=scan_stats["dungeons"], created_at=created_at)
+        save_state(args.state, ranker, season_id=season_id, closed=done | set(todo), floors=closed_floors,
+                   dungeons=scan_stats["dungeons"], created_at=created_at,
+                   heroes=state_heroes, hero_times=state_hero_times)
+    closed_best = {key: dict(value) for key, value in ranker.best.items()} if args.state else None
+    closed_identity = dict(ranker.identity) if args.state else None
     current = [p for p in periods if p >= week]
     scan(client, realms, current, ranker, workers=args.workers, progress=log, stats=scan_stats)
     scan_stats["weeksFromState"] = len(done & set(closed))
@@ -726,6 +814,10 @@ def main():
     certifier = Certifier(client, ranker, scan_stats["dungeons"], bounds, realm_map(client, realms),
                           season_id=season_id, max_level=args.max_level, ilvl_gap=args.ilvl_gap,
                           max_profiles=args.max_profiles, workers=args.workers)
+    # hero trees looked up within the last week are reused; trees rarely change and each costs a request
+    for char_id, info in state_heroes.items():
+        if now - state_hero_times.get(char_id, 0) <= HERO_MAX_AGE:
+            certifier.heroes[char_id], certifier.hero_times[char_id] = info, state_hero_times[char_id]
     # a first pass over the strongest profiles sets a realistic untimed ceiling before bounds are used
     seed = sorted({c for s in specs for c in [r["id"] for r in ranking.get(s, [])[:5]]})
     with ThreadPoolExecutor(args.workers) as pool:
@@ -737,9 +829,41 @@ def main():
         for s, f in futures.items():
             verified[s] = f.result()
             log(f"spec {s}: {verified[s][2]}")
+    # hero talent cohorts: every tree seen among the checked players of a spec
+    hero_jobs = {}
+    for s in specs:
+        seen = set(specs[s].get("heroTrees", []))
+        seen |= {(v["heroTree"]["id"], v["heroTree"]["name"]) for v in verified[s][0] if v.get("heroTree")}
+        seen |= {(h, n) for c, (a, h, n) in list(certifier.heroes.items()) if a == s and h}
+        for hero_id, hero_name in sorted(seen):
+            hero_jobs.setdefault((s, hero_id), hero_name)
+    heroes = defaultdict(dict)
+    with ThreadPoolExecutor(4) as pool:
+        futures = {key: pool.submit(certifier.run, key[0], target=args.target, hero_id=key[1], minimum=args.minimum,
+                                    max_walk=args.hero_walk) for key in hero_jobs}
+        for (s, hero_id), f in futures.items():
+            rows, _, cert = f.result()
+            heroes[s][hero_id] = (hero_jobs[(s, hero_id)], rows, cert)
+            log(f"spec {s} hero {hero_jobs[(s, hero_id)]}: {len(rows)} players, certified={cert.get('certified')}")
+    # less played trees: their best players sit further down the spec ranking, so walk deeper once
+    thin = [key for key in hero_jobs if not heroes[key[0]][key[1]][1]]
+    if thin and args.hero_walk_deep > args.hero_walk:
+        with ThreadPoolExecutor(4) as pool:
+            futures = {key: pool.submit(certifier.run, key[0], target=args.target, hero_id=key[1], minimum=args.minimum,
+                                        max_walk=args.hero_walk_deep) for key in thin}
+            for (s, hero_id), f in futures.items():
+                rows, _, cert = f.result()
+                cert["deepWalk"] = True
+                heroes[s][hero_id] = (hero_jobs[(s, hero_id)], rows, cert)
+                log(f"spec {s} hero {hero_jobs[(s, hero_id)]} (deep): {len(rows)} players, certified={cert.get('certified')}")
+    if args.state:
+        save_state(args.state, ranker, season_id=season_id, closed=done | set(todo), floors=closed_floors,
+                   dungeons=scan_stats["dungeons"], created_at=created_at, heroes=certifier.heroes,
+                   hero_times=certifier.hero_times, best=closed_best, identity=closed_identity)
     report = build_report(season_id=season_id, periods=periods, realms=realms, specs=specs, scan_stats=scan_stats,
                           ranking=ranking, fallback=fallback, verified=verified, target=args.target,
-                          minimum=args.minimum, client=client)
+                          minimum=args.minimum, client=client, heroes=heroes,
+                          popularity={s: hero_popularity(ranking.get(s, []), certifier.heroes, s) for s in specs})
     text = json.dumps(report, indent=1, ensure_ascii=False)
     if args.observations:
         if args.observations.resolve().is_relative_to(REPOSITORY / "StatCompass"):
@@ -747,7 +871,10 @@ def main():
         args.observations.write_text(json.dumps({
             "season": season_id, "periods": periods, "generatedAt": report["generatedAt"],
             "rankingMetric": "sum over dungeons of the best in-spec run mythic_rating (Blizzard season rules), exact top-k",
-            "specs": {str(s): {"certification": verified[s][2], "observations": verified[s][0]} for s in specs}},
+            "specs": {str(s): {"certification": verified[s][2], "observations": verified[s][0],
+                               "heroes": {str(h): {"name": name, "certification": cert, "observations": rows}
+                                          for h, (name, rows, cert) in heroes.get(s, {}).items() if rows}}
+                      for s in specs}},
             ensure_ascii=False), encoding="utf-8")
     if args.output:
         if args.output.resolve().is_relative_to(REPOSITORY / "StatCompass"):

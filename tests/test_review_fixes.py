@@ -138,10 +138,10 @@ def test_all_render_bound_metadata_escapes_wow_markup():
     run(lua, '''
       C_SpecializationInfo.GetSpecializationInfo=function() return 71,"|Tbad|t" end
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
-      assert(StatCompass.tooltipText:find("||T",1,true))
-      assert(StatCompass.tooltipText:find("||c",1,true))
-      assert(StatCompass.tooltipText:find("||H",1,true))
-      assert(StatCompass.tooltipText:find("||n",1,true))
+      assert(StatCompass.metadataText:find("||T",1,true))
+      assert(StatCompass.metadataText:find("||c",1,true))
+      assert(StatCompass.metadataText:find("||H",1,true))
+      assert(StatCompass.metadataText:find("||n",1,true))
       assert(StatCompass.spec.text:find("||T",1,true))
     ''')
 
@@ -232,7 +232,7 @@ def test_same_expiry_replacement_invalidates_callback_and_refreshes_shown_toolti
       local now=1800000000
       GetServerTime=function() return now end
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
-      StatCompass.panel.scripts.OnEnter(StatCompass.panel)
+      StatCompass.metadataHit.scripts.OnEnter(StatCompass.metadataHit)
       local old=widgets.timers[1].fn
       local oldData=StatCompass.releaseData
       local replacement={}
@@ -248,7 +248,7 @@ def test_same_expiry_replacement_invalidates_callback_and_refreshes_shown_toolti
       assert(renders==0 and #widgets.timers==2)
       now=1800001000
       widgets.timers[2].fn()
-      assert(renders==1 and GameTooltip.text==StatCompass.tooltipText)
+      assert(renders==1 and GameTooltip.text==StatCompass.metadataText)
       assert(not GameTooltip.text:find("refreshed",1,true))
     ''')
 
@@ -299,8 +299,8 @@ def test_expiry_invalidates_target_when_spec_unreadable_or_changed(spec_result):
       StatCompass.Render=function(snapshot) renders=renders+1; original(snapshot) end
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       assert(renders==1 and #widgets.timers==1)
-      assert(StatCompass.rows[1].target.text==StatCompass.Text("unknown","enUS")) -- percent cohort cannot populate rating mean
-      StatCompass.panel.scripts.OnEnter(StatCompass.panel)
+      assert(StatCompass.rows[1].target.text:find("900")) -- cohort rating mean from Core
+      StatCompass.metadataHit.scripts.OnEnter(StatCompass.metadataHit)
       local expiry=widgets.timers[1].fn
       C_SpecializationInfo.GetSpecializationInfo=function() return SPEC_RESULT end
       now=1800001000
@@ -310,7 +310,7 @@ def test_expiry_invalidates_target_when_spec_unreadable_or_changed(spec_result):
       assert(StatCompass.status.text==StatCompass.Text("noData","enUS"))
       assert(StatCompass.rows[1].target.text==StatCompass.Text("unknown","enUS"))
       assert(not StatCompass.rows[1].markerMin.shown and not StatCompass.rows[1].markerMax.shown)
-      assert(GameTooltip.text==StatCompass.Text("unavailableHelp","enUS"))
+      assert(GameTooltip.text==StatCompass.Text("referenceUnavailable","enUS"))
       assert(#widgets.timers==1 and #widgets.callbacks==0)
       expiry() -- consumed callback cannot render twice
       assert(renders==2 and #widgets.timers==1 and #widgets.callbacks==0)

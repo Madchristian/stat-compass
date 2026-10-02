@@ -12,11 +12,11 @@ def test_source_status_gates_reference_and_axis_secret_order():
         reference={minRating=400,meanRating=500,maxRating=600}}
       a.Render({ratingComparison={crit=item}})
       local r=a.rows[1]
-      assert(r.markerMean.shown and r.interval.shown and r.fill.color[1]~=r.neutralColor[1])
+      assert(r.markerMean.shown and r.glow.shown and r.fill.color[1]~=r.neutralColor[1])
       for _,status in ipairs({"unverified","unavailable","invalid","bogus"}) do
         item.sourceStatus=status; a.Render({ratingComparison={crit=item}})
         assert(not r.markerMin.shown and not r.markerMean.shown and not r.markerMax.shown)
-        assert(not r.interval.shown and r.fill.color[1]==r.neutralColor[1])
+        assert(not r.glow.shown and r.fill.color[1]==r.neutralColor[1])
       end
       item.sourceStatus=nil; a.Render({ratingComparison={crit=item}})
       assert(not r.markerMean.shown and r.fill.color[1]==r.neutralColor[1])
@@ -40,11 +40,11 @@ def test_row_hover_refreshes_and_three_labels_are_visible():
       local r=a.rows[1]
       assert(r.target.shown~=false and r.target.text:find("Mean 500",1,true))
       assert(r.min:GetStringWidth()<=r.min.width and r.target:GetStringWidth()<=r.target.width and r.max:GetStringWidth()<=r.max.width)
-      assert(r.markerMean.point[1]~=r.markerCurrent.point[1])
-      r.hoverFrame.scripts.OnEnter(r.hoverFrame)
+      assert(r.markerMean.point[1]==r.markerCurrent.point[1] and r.markerMean.point[4]==r.markerCurrent.point[4])
+      r.hit.current.scripts.OnEnter(r.hit.current)
       item.currentRating=520; a.Render({ratingComparison={crit=item}})
-      assert(GameTooltip.text==r.tooltipText and GameTooltip.text:find("520",1,true))
+      assert(GameTooltip.text==r.tip.current and GameTooltip.text:find("520",1,true))
       a.Render({})
       assert(r.axisStatus.shown and r.axisStatus.text==a.Text("axisUnavailableShort","enUS"))
-      assert(GameTooltip.text==r.tooltipText)
+      assert(GameTooltip.text==r.tip.current)
     ''')

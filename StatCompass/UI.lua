@@ -78,27 +78,38 @@ local function validCount(value)
 end
 -- Only this explicit rating payload may drive a bar. Core's percent snapshot is display-only.
 local function ratingFor(snapshot,key)
-  local all=publicTable(snapshot.ratingComparison)
-  local item=all and publicTable(all[key])
+  -- Raw reads prevent hostile container metatables from manufacturing values.
+  local all=publicTable(rawget(snapshot,"ratingComparison"))
+  local item=all and publicTable(rawget(all,key))
   if not item then return nil end
-  local axis=usableNumber(item.axisMaxRating) and item.axisMaxRating>0 and item.axisMaxRating or nil
-  local provenance=A.IsPublic(item.axisProvenance) and type(item.axisProvenance)=="string" and item.axisProvenance~="" and item.axisProvenance or nil
-  if not A.IsPublic(item.axisVerified) or item.axisVerified~=true or not provenance then axis=nil end
-  local current=usableNumber(item.currentRating) and item.currentRating>=0 and item.currentRating or nil
-  local ref=publicTable(item.reference)
+  local axis=rawget(item,"axisMaxRating")
+  axis=usableNumber(axis) and axis>0 and axis or nil
+  local provenance=rawget(item,"axisProvenance")
+  provenance=A.IsPublic(provenance) and type(provenance)=="string" and provenance~="" and provenance or nil
+  local verified=rawget(item,"axisVerified")
+  if not A.IsPublic(verified) or verified~=true or not provenance then axis=nil end
+  local current=rawget(item,"currentRating")
+  current=usableNumber(current) and current>=0 and current or nil
+  local ref=publicTable(rawget(item,"reference"))
   local bounds
-  local status=A.IsPublic(item.sourceStatus) and type(item.sourceStatus)=="string" and item.sourceStatus or nil
+  local status=rawget(item,"sourceStatus")
+  status=A.IsPublic(status) and type(status)=="string" and status or nil
   if ref and axis and status=="verified" then
     bounds={}
     for _,field in ipairs({{"min","minRating"},{"mean","meanRating"},{"max","maxRating"}}) do
-      local value=ref[field[2]]
+      local value=rawget(ref,field[2])
       if usableNumber(value) and value>=0 and (not axis or value<=axis) then bounds[field[1]]=value end
     end
     if bounds.min and bounds.max and bounds.min>bounds.max then bounds={} end
     if bounds.mean and bounds.min and bounds.mean<bounds.min then bounds.mean=nil end
     if bounds.mean and bounds.max and bounds.mean>bounds.max then bounds.mean=nil end
+    -- Provider-owned nearest-rank quartiles; never derive them from extrema.
+    local low,high=rawget(ref,"lowRating"),rawget(ref,"highRating")
+    if usableNumber(low) and usableNumber(high) and low>=0 and high<=axis and low<=high then
+      bounds.low,bounds.high=low,high
+    end
   end
-  local n=validCount(item.sampleCount)
+  local n=validCount(rawget(item,"sampleCount"))
   return {axis=axis,provenance=provenance,current=current,bounds=bounds,n=n,status=status}
 end
 local NATIVE_BG = "Interface\\DialogFrame\\UI-DialogBox-Background"
@@ -160,66 +171,115 @@ local function barPosition(value, axis)
   if value >= axis then return 1 end
   return value / axis
 end
-local function marker(row, texture, value, axis, kind)
+local function marker(row, texture, value, axis, outline, hit)
+  local x = row.markerInset + (row.barWidth-2*row.markerInset)*barPosition(value, axis)
   texture:ClearAllPoints()
-  local x = 1.5 + (row.barWidth-3) * barPosition(value, axis)
-  if kind == "min" then
-    texture:SetPoint("BOTTOM", row.track, "TOPLEFT", x, -3)
-  elseif kind == "max" then
-    texture:SetPoint("TOP", row.track, "BOTTOMLEFT", x, 3)
-  elseif kind == "mean" then
-    texture:SetPoint("TOP", row.track, "TOPLEFT", x, 2+row.meanHeight)
-  else
-    texture:SetPoint("CENTER", row.track, "LEFT", x, 0)
-  end
+  texture:SetPoint("CENTER", row.track, "LEFT", x, 0)
   texture:Show()
+  if outline then
+    outline:ClearAllPoints()
+    outline:SetPoint("CENTER", row.track, "LEFT", x, 0)
+    outline:Show()
+  end
+  if hit then
+    hit:ClearAllPoints()
+    hit:SetPoint("TOPLEFT", A.panel, "TOPLEFT", row.trackX+x-hit:GetWidth()/2,
+      row.trackY+(hit:GetHeight()-row.trackHeight)/2)
+    hit:Show()
+  end
 end
 local function redrawBar(row)
   local item=row.cachedRating
   local current,bounds,axis=item and item.current,item and item.bounds,item and item.axis
   row.axis = axis
   if axis then row.track:Show() else row.track:Hide() end
+  row.band:Hide(); row.bandCue:Hide()
+  row.bandWidth=0; row.bandTip=nil
+  if axis and bounds and bounds.low and bounds.high then
+    local span=row.barWidth-2*row.markerInset
+    local x1=row.markerInset+span*barPosition(bounds.low,axis)
+    local x2=row.markerInset+span*barPosition(bounds.high,axis)
+    row.bandWidth=x2-x1
+    row.bandTip=string.format(T("middle50"),ratingNumber(bounds.low),ratingNumber(bounds.high))
+    if x2>x1 then
+      row.band:ClearAllPoints()
+      row.band:SetPoint("LEFT",row.track,"LEFT",x1,0)
+      row.band:SetSize(x2-x1,row.trackHeight)
+      row.band:Show()
+    else
+      -- A one-physical-pixel position cue, NOT a fabricated nonzero interval.
+      row.bandCue:ClearAllPoints()
+      row.bandCue:SetPoint("CENTER",row.track,"LEFT",x1,0)
+      row.bandCue:SetSize(row.markerInset/3,row.trackHeight)
+      row.bandCue:Show()
+    end
+    local hitWidth=math.max(row.markerInset*2,x2-x1)
+    row.bandHit:ClearAllPoints()
+    row.bandHit:SetPoint("TOPLEFT",A.panel,"TOPLEFT",row.trackX+(x1+x2-hitWidth)/2,row.trackY)
+    row.bandHit:SetSize(hitWidth,row.trackHeight)
+    row.bandHit:Show()
+  else
+    row.bandHit:Hide()
+    if A.TooltipIsOwned(row.bandHit) then leaveTooltip(row.bandHit) end
+  end
   if axis and current and current<=axis then
     local fraction = barPosition(current, axis)
     row.fill:SetWidth(math.max(0.01, row.barWidth * fraction))
     row.fill:Show()
-    marker(row, row.markerCurrent, current, axis)
+    marker(row, row.markerCurrent, current, axis, row.outlineCurrent, row.markerHit.current)
   else
-    row.fill:Hide(); row.markerCurrent:Hide()
+    row.fill:Hide(); row.markerCurrent:Hide(); row.outlineCurrent:Hide(); row.markerHit.current:Hide()
   end
   for _,entry in ipairs({{"min",row.markerMin},{"mean",row.markerMean},{"max",row.markerMax}}) do
     local v=bounds and bounds[entry[1]]
-    if axis and usableNumber(v) then marker(row,entry[2],v,axis,entry[1]) else entry[2]:Hide() end
+    if axis and usableNumber(v) then marker(row,entry[2],v,axis,row.outline[entry[1]],row.markerHit[entry[1]])
+    else entry[2]:Hide(); row.outline[entry[1]]:Hide(); row.markerHit[entry[1]]:Hide() end
   end
-  if axis and bounds and usableNumber(bounds.mean) then
-    row.meanStem:ClearAllPoints()
-    row.meanStem:SetPoint("BOTTOM", row.track, "TOPLEFT", 1.5+(row.barWidth-3)*barPosition(bounds.mean,axis), 0)
-    row.meanStem:Show()
-  else row.meanStem:Hide() end
-  if axis and bounds and bounds.min and bounds.max then
-    local x1=1.5+(row.barWidth-3)*barPosition(bounds.min,axis)
-    local x2=1.5+(row.barWidth-3)*barPosition(bounds.max,axis)
-    row.interval:ClearAllPoints()
-    row.interval:SetPoint("LEFT",row.track,"LEFT",x1,0)
-    row.interval:SetWidth(math.max(1,x2-x1))
-    row.interval:Show()
-  else row.interval:Hide() end
+  if axis and current and bounds and bounds.min and bounds.max and bounds.mean and bounds.max>bounds.min then
+    local spread=math.max(bounds.mean-bounds.min,bounds.max-bounds.mean)
+    local proximity=math.max(0,1-math.abs(current-bounds.mean)/spread)
+    if proximity>0 then
+      local x=row.markerInset+(row.barWidth-2*row.markerInset)*barPosition(bounds.mean,axis)
+      row.glow:ClearAllPoints()
+      row.glow:SetPoint("CENTER",row.track,"LEFT",x,0)
+      row.glow:SetVertexColor(row.palette[1],row.palette[2],row.palette[3],0.45*proximity)
+      row.glow:Show()
+    else row.glow:Hide() end
+  else row.glow:Hide() end
   local color=row.palette
   if not axis or not current or current>axis or not bounds or not bounds.min or not bounds.max or not bounds.mean
       or current<bounds.min or current>bounds.max then color=NEUTRAL
   else
     local span=math.max(bounds.mean-bounds.min,bounds.max-bounds.mean)
-    local ratio=span==0 and 0 or math.min(1,math.abs(current-bounds.mean)/span)
+    local ratio=span==0 and 1 or math.min(1,math.abs(current-bounds.mean)/span)
     local strength=1-0.42*ratio
     -- A dark desaturated baseline makes both brightness and saturation rise.
     color={0.12+(color[1]-0.12)*strength,
       0.14+(color[2]-0.14)*strength,
       0.16+(color[3]-0.16)*strength}
   end
-  paint(row.fill,FLAT,color[1],color[2],color[3],1)
+  paint(row.fill,FLAT,color[1],color[2],color[3],row.bandTip and 0.65 or 1)
+end
+local specTextColor
+local function colorSpecialization()
+  if not specTextColor then specTextColor = {A.spec:GetTextColor()} end
+  local r,g,b,a = unpack(specTextColor)
+  if A.settings.skin == "flat" and A.IsPublic(UnitClass) and type(UnitClass) == "function" then
+    local ok, _, token = pcall(UnitClass, "player")
+    if A.IsPublic(ok) and ok == true and A.IsPublic(token) and type(token) == "string" then
+      local colors = publicTable(RAID_CLASS_COLORS)
+      local color = colors and publicTable(colors[token])
+      if color and usableNumber(color.r) and usableNumber(color.g) and usableNumber(color.b)
+          and color.r >= 0 and color.r <= 1 and color.g >= 0 and color.g <= 1 and color.b >= 0 and color.b <= 1 then
+        r,g,b,a = color.r,color.g,color.b,1
+      end
+    end
+  end
+  A.spec:SetTextColor(r,g,b,a)
 end
 function A.ApplySkin()
   if not A.visible or not A.panel then return end
+  colorSpecialization()
   local native = A.settings.skin == "default"
   paint(A.panel.base, FLAT, 0.035, 0.04, 0.055, 1)
   paint(A.panel.bg, native and NATIVE_BG or FLAT, native and 0.24 or 0.035, native and 0.20 or 0.045, native and 0.16 or 0.06, 0.99)
@@ -232,12 +292,12 @@ function A.ApplySkin()
   end
   for _,row in ipairs(A.rows) do
     paint(row.track, FLAT, native and 0.10 or 0.09, native and 0.09 or 0.13, native and 0.08 or 0.17, 1)
-    paint(row.interval, FLAT, native and 0.68 or 0.40, native and 0.67 or 0.48, native and 0.62 or 0.55, 0.40)
+    paint(row.band, FLAT, 0.88,0.91,1,0.8)
+    paint(row.bandCue, FLAT, 0.88,0.91,1,0.8)
     paint(row.markerCurrent, FLAT, 1, 1, 1, 1)
-    paint(row.markerMin, FLAT, 0.77, 0.81, 0.84, 1)
-    paint(row.markerMean, FLAT, 1, 0.82, 0.34, 1)
-    paint(row.meanStem, FLAT, 1, 0.82, 0.34, 1)
-    paint(row.markerMax, FLAT, 0.77, 0.81, 0.84, 1)
+    for _,mark in ipairs({row.markerMin,row.markerMean,row.markerMax}) do paint(mark, FLAT, 1,1,1,1) end
+    for _,mark in ipairs({row.outlineCurrent,row.outline.min,row.outline.mean,row.outline.max}) do paint(mark,FLAT,0.015,0.018,0.025,1) end
+    row.glow:SetTexture("Interface\\SpellActivationOverlay\\IconAlert")
     if row.hasCache then redrawBar(row) end
   end
 end
@@ -255,8 +315,10 @@ local function meanLabel(row, bounds)
     row.target:SetText(T("meanShort") .. " " .. ratingNumber(mean))
   end
 end
+local fitTypography
 function A.Render(snapshot)
   if not A.visible or not A.panel then return end
+  colorSpecialization()
   snapshot=publicTable(snapshot) or {}
   local target = publicTable(snapshot.target)
   if snapshot.specID then
@@ -269,8 +331,8 @@ function A.Render(snapshot)
     local ref=ratingFor(snapshot,key)
     if ref and ref.n and ref.status=="verified" then firstReference=ref; break end
   end
-  A.status:SetText(firstReference and (T("sample") .. " " .. firstReference.n .. (target and usableNumber(target.observedAt) and ("  |  " .. T("observedAt") .. " " .. dateText(target.observedAt)) or "")) or T("noData"))
-  A.tooltipText = target and (T("distributionHelp") .. "\n" .. T("source") .. ": " .. displayText(target.sourceURL) .. "\n" .. T("collectedAt") .. ": " .. dateText(target.collectedAt) .. "  |  " .. T("expiresAt") .. ": " .. dateText(target.expiresAt) .. "\n" .. T("selected") .. ": " .. tostring(target.selectedCount) .. "  |  " .. T("valid") .. ": " .. tostring(target.validCount) .. "\n" .. displayText(target.season) .. " | " .. displayText(target.rankingMetric) .. " | " .. displayText(target.difficulty) .. " | " .. displayText(target.partition)) or (firstReference and T("distributionHelp") or T("unavailableHelp"))
+  A.status:SetText(firstReference and T("referenceAvailable") or T("noData"))
+  A.metadataText = target and (T("sample") .. ": " .. ratingNumber(firstReference and firstReference.n) .. "\n" .. T("observedAt") .. ": " .. (usableNumber(target.observedAt) and dateText(target.observedAt) or T("unknown")) .. "\n" .. T("source") .. ": " .. displayText(target.sourceURL) .. "\n" .. T("collectedAt") .. ": " .. (usableNumber(target.collectedAt) and dateText(target.collectedAt) or T("unknown")) .. "  |  " .. T("expiresAt") .. ": " .. (usableNumber(target.expiresAt) and dateText(target.expiresAt) or T("unknown")) .. "\n" .. T("selected") .. ": " .. ratingNumber(target.selectedCount) .. "  |  " .. T("valid") .. ": " .. ratingNumber(target.validCount) .. "\n" .. displayText(target.season) .. " | " .. displayText(target.rankingMetric) .. " | " .. displayText(target.difficulty) .. " | " .. displayText(target.partition)) or T("referenceUnavailable")
   for i,key in ipairs(A.statOrder) do
     local row = A.rows[i]
     local current = publicTable(snapshot.current) and snapshot.current[key]
@@ -285,27 +347,34 @@ function A.Render(snapshot)
     meanLabel(row,bounds)
     row.axisStatus:SetText(axis and "" or T("axisUnavailableShort"))
     if axis then row.axisStatus:Hide() else row.axisStatus:Show() end
-    row.tooltipText=T("distributionHelp") .. "\n" .. T("current") .. ": " .. (rating and ratingNumber(rating) .. " " .. T("ratingUnit") or number(current))
-      .. "  |  " .. T("min") .. ": " .. ratingNumber(bounds and bounds.min)
-      .. "  |  " .. T("mean") .. ": " .. ratingNumber(bounds and bounds.mean)
-      .. "  |  " .. T("max") .. ": " .. ratingNumber(bounds and bounds.max)
-      .. "\n" .. (axis and (T("verifiedAxis") .. " " .. ratingNumber(axis) .. " (" .. displayText(item.provenance) .. ")") or T("axisUnavailable"))
-      .. (not rating and ("\n" .. T("ratingUnavailable")) or "")
-      .. (axis and rating and rating>axis and ("\n" .. T("ratingPastAxis")) or "")
-      .. (item and item.n and ("\n" .. T("sample") .. " " .. item.n .. ". " .. T("sampleUncertainty")) or "")
-      .. (item and item.status and ("\n" .. displayText(item.status)) or "")
+    row.tip={
+      current=T("ownRating") .. ": " .. ratingNumber(rating) .. " " .. T("ratingUnit") .. "\n" .. T("ownPercent") .. ": " .. number(current),
+      min=T("observedLower") .. ": " .. ratingNumber(bounds and bounds.min) .. " " .. T("ratingUnit"),
+      mean=T("cohortAverage") .. ": " .. ratingNumber(bounds and bounds.mean) .. " " .. T("ratingUnit"),
+      max=T("observedUpper") .. ": " .. ratingNumber(bounds and bounds.max) .. " " .. T("ratingUnit"),
+    }
+    if rating and bounds and bounds.mean then
+      row.tip.mean=row.tip.mean .. "\n" .. T("meanDifference") .. ": " .. string.format("%+.0f",rating-bounds.mean) .. " " .. T("ratingUnit")
+    end
+    row.glowTip=T("glowCloseness")
+    if rating and bounds and bounds.min and bounds.max and bounds.mean and bounds.max>bounds.min
+        and math.abs(rating-bounds.mean)<math.max(bounds.mean-bounds.min,bounds.max-bounds.mean) then
+      row.tip.mean=row.tip.mean .. "\n" .. row.glowTip
+    end
     row.cachedRating, row.hasCache = item, true
     redrawBar(row)
   end
+  fitTypography()
   if A.tooltipOpen then
     local owner=A.tooltipOwner
     if A.TooltipIsOwned(owner) then
-      local hoverText=A.tooltipText
+      local hoverText=owner==A.metadataHit and A.metadataText or nil
       for _,row in ipairs(A.rows) do
-        if owner==row.hoverFrame then hoverText=row.tooltipText; break end
+        if owner==row.bandHit then hoverText=row.bandTip end
+        for role,hit in pairs(row.hit) do if owner==hit then hoverText=row.tip[role] end end
+        for role,hit in pairs(row.markerHit) do if owner==hit then hoverText=row.tip[role] end end
       end
-      GameTooltip:SetText(hoverText,1,1,1,1,true)
-      GameTooltip:Show()
+      if hoverText then GameTooltip:SetText(hoverText,1,1,1,1,true); GameTooltip:Show() end
     else
       clearTooltipState()
     end
@@ -318,6 +387,128 @@ local function coordinate(frame, method)
   local ok, value = pcall(fn, frame)
   if not A.IsPublic(ok) or ok ~= true or not usableNumber(value) then return nil end
   return value
+end
+-- Read a visible host label's size, never its font asset or private addon data.
+-- One bounded discovery per shown session; subsequent geometry uses the cached
+-- FontString and fresh effective scales. No OnUpdate or hidden tree traversal.
+local hostFont, searchedHost
+local function publicCall(object, method)
+  if not A.IsPublic(object) or (type(object)~="table" and type(object)~="userdata") then return nil end
+  local fn=object[method]
+  if not A.IsPublic(fn) or type(fn)~="function" then return nil end
+  local result={pcall(fn,object)}
+  if not A.IsPublic(result[1]) or result[1]~=true then return nil end
+  return result
+end
+local function shown(object)
+  local result=publicCall(object,"IsVisible")
+  return result and A.IsPublic(result[2]) and result[2]==true
+end
+local function hostTextSize()
+  local root=EUI_CharSheet_StatsPanel
+  if not shown(root) then root=CharacterStatsPane end
+  if not shown(root) then return nil end
+  if searchedHost~=root then
+    searchedHost,hostFont=root,nil
+    local budget=128
+    local function visit(frame,depth)
+      if budget<=0 or depth>4 or not shown(frame) then return end
+      budget=budget-1
+      local regions=publicCall(frame,"GetRegions")
+      if regions then
+        for i=2,math.min(#regions,65) do
+          if budget<=0 then break end
+          budget=budget-1
+          local region=regions[i]
+          if shown(region) then
+            local text=publicCall(region,"GetText")
+            if text and A.IsPublic(text[2]) and type(text[2])=="string" and text[2]==T("haste") then
+              hostFont=region; return
+            end
+          end
+        end
+      end
+      local children=publicCall(frame,"GetChildren")
+      if children then
+        for i=2,math.min(#children,65) do
+          visit(children[i],depth+1)
+          if hostFont or budget<=0 then break end
+        end
+      end
+    end
+    visit(root,0)
+  end
+  if not shown(hostFont) then return nil end
+  local font=publicCall(hostFont,"GetFont")
+  local scale=coordinate(hostFont,"GetEffectiveScale")
+  local own=coordinate(A.panel,"GetEffectiveScale")
+  if font and usableNumber(font[3]) and font[3]>0 and scale and scale>0 and own and own>0 then
+    local size=font[3]*scale/own
+    if usableNumber(size) then return size end
+  end
+end
+local function sizeFont(font,size)
+  font.desiredSize=size
+  local current=publicCall(font,"GetFont")
+  if not current or not A.IsPublic(current[2]) or type(current[2])~="string"
+      or not A.IsPublic(current[4]) or type(current[4])~="string" then return end
+  -- Retain our inherited Blizzard font/flags, including the user's font override.
+  font:SetFont(current[2],size,current[4])
+end
+-- Measure rendered glyphs, not character-count estimates. Restore each widget's
+-- enlarged target first so a shorter spec/value can grow again after refresh.
+local function fitFont(font)
+  local size=font.desiredSize
+  if not size then return end
+  sizeFont(font,size)
+  local width=coordinate(font,"GetWidth")
+  if not width or width<=0 then return end
+  for _=1,3 do
+    local measured=coordinate(font,"GetStringWidth")
+    if not measured or measured<=width then break end
+    size=math.max(1,size*(width-0.5)/measured)
+    local current=publicCall(font,"GetFont")
+    if not current or not A.IsPublic(current[2]) or type(current[2])~="string"
+        or not A.IsPublic(current[4]) or type(current[4])~="string" then break end
+    font:SetFont(current[2],size,current[4])
+  end
+end
+local function fitHit(hit,font,align)
+  if not hit or not hit.columnX then return end
+  local width=math.max(1,math.min(font:GetWidth(),font:GetStringWidth()))
+  local shift=align=="RIGHT" and font:GetWidth()-width or (align=="CENTER" and (font:GetWidth()-width)/2 or 0)
+  hit:ClearAllPoints()
+  hit:SetPoint("TOPLEFT",A.panel,"TOPLEFT",hit.columnX+shift,hit.columnY)
+  hit:SetWidth(width)
+end
+fitTypography=function()
+  fitFont(A.title); fitFont(A.spec); fitFont(A.status)
+  fitHit(A.metadataHit,A.status,"LEFT")
+  for _,font in pairs(A.headers) do fitFont(font) end
+  for _,widget in ipairs(A.buttons) do fitFont(widget.caption) end
+  for _,row in ipairs(A.rows) do
+    for _,font in ipairs({row.label,row.current,row.min,row.target,row.max,row.axisStatus}) do fitFont(font) end
+    fitHit(row.hit.current,row.current,"RIGHT")
+    fitHit(row.hit.min,row.min,"LEFT")
+    fitHit(row.hit.mean,row.target,"CENTER")
+    fitHit(row.hit.max,row.max,"RIGHT")
+  end
+end
+local function typography(density)
+  local size=20
+  if CharacterFrame:IsVisible() and PaperDollFrame:IsVisible() then
+    size=math.max(20,math.min(21+3*density,hostTextSize() or 20))
+  end
+  sizeFont(A.title,size); sizeFont(A.spec,size)
+  local secondary=math.max(14,math.min(14+2*density,size*0.70))
+  for _,font in pairs(A.headers) do sizeFont(font,secondary) end
+  sizeFont(A.status,secondary)
+  for _,widget in ipairs(A.buttons) do sizeFont(widget.caption,secondary) end
+  for _,row in ipairs(A.rows) do
+    sizeFont(row.label,size); sizeFont(row.current,size)
+    for _,font in ipairs({row.min,row.target,row.max,row.axisStatus}) do sizeFont(font,secondary) end
+  end
+  return secondary
 end
 local function clampPanel()
   if not A.panel then return false end
@@ -338,6 +529,7 @@ local function clampPanel()
   if not A.IsPublic(ok) or ok ~= true or not usableNumber(physicalHeight) or physicalHeight <= 0 or not usableNumber(virtualHeight) or virtualHeight <= 0 then return false end
   local pixelDensity = physicalHeight/virtualHeight
   if not usableNumber(pixelDensity) or pixelDensity <= 0 then return false end
+  A.pixelDensity=pixelDensity
   rootScale, ownerScale, panelScale = rootScale*pixelDensity, ownerScale*pixelDensity, panelScale*pixelDensity
   local screenLeft, screenRight = rootLeft*rootScale, rootRight*rootScale
   local screenBottom, screenTop = rootBottom*rootScale, rootTop*rootScale
@@ -355,9 +547,14 @@ local function clampPanel()
   local leftSpace = left-screenLeft-margin
   local width = math.min(desiredWidth, availableWidth)
   local side
+  local gutter = 0
   -- Exterior space bounds the far edge; the attachment edge must be on-screen too.
-  if right >= screenLeft and rightSpace >= 360 then side="right"; width=math.min(width,rightSpace)
-  elseif left <= screenRight and leftSpace >= 360 then side="left"; width=math.min(width,leftSpace)
+  -- These spaces are physical pixels. Preserve a small gap when space permits,
+  -- shrinking the gap before sacrificing the minimum readable panel width.
+  if right >= screenLeft and rightSpace >= 360 then
+    side="right"; gutter=math.min(10,rightSpace-360); width=math.min(width,rightSpace-gutter)
+  elseif left <= screenRight and leftSpace >= 360 then
+    side="left"; gutter=math.min(10,leftSpace-360); width=math.min(width,leftSpace-gutter)
   else side="fallback" end
   if not usableNumber(localScale) or localScale <= 0 or not usableNumber(width) or width < 360 then return false end
   local panelTop = math.min(top, screenTop)
@@ -375,56 +572,90 @@ local function clampPanel()
   if not usableNumber(panelTop) or not usableNumber(ownerOffset) or not usableNumber(rootOffsetX) or not usableNumber(rootOffsetY) then return false end
   A.panel:ClearAllPoints()
   if side == "right" then
-    A.panel:SetPoint("TOPLEFT", CharacterFrame, "TOPRIGHT", 0, ownerOffset)
+    A.panel:SetPoint("TOPLEFT", CharacterFrame, "TOPRIGHT", gutter/panelScale, ownerOffset)
   elseif side == "left" then
-    A.panel:SetPoint("TOPRIGHT", CharacterFrame, "TOPLEFT", 0, ownerOffset)
+    A.panel:SetPoint("TOPRIGHT", CharacterFrame, "TOPLEFT", -gutter/panelScale, ownerOffset)
   else
     A.panel:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", rootOffsetX, rootOffsetY)
   end
   return true
 end
-local function texture(parent, layer, width, height)
-  local result = parent:CreateTexture(nil, layer)
+local function texture(parent, layer, width, height, sublevel)
+  local result = parent:CreateTexture(nil, layer, nil, sublevel)
   result:SetSize(width, height)
   return result
+end
+local function tooltipHit(parent, textFor)
+  local hit=CreateFrame("Frame",nil,parent)
+  hit:EnableMouse(true)
+  hit:SetScript("OnEnter",function(self)
+    local value=textFor()
+    if not value or not A.IsPublic(GameTooltip) or not GameTooltip then return end
+    A.tooltipOwner=self; A.tooltipOpen=true
+    GameTooltip:SetOwner(self,"ANCHOR_RIGHT")
+    if not A.TooltipIsOwned(self) then clearTooltipState(); return end
+    GameTooltip:SetText(value,1,1,1,1,true)
+    GameTooltip:Show()
+  end)
+  hit:SetScript("OnLeave",function(self) leaveTooltip(self) end)
+  return hit
 end
 function A.Layout(width, height)
   local panel = A.panel
   local inset, inner = 16, width-32
   local density = math.max(0, math.min(1, (height-424)/326))
+  local secondarySize=typography(density)
   panel.borders[1]:SetSize(width, 3)
   panel.borders[2]:SetSize(width, 3)
   panel.borders[3]:SetSize(3, height)
   panel.borders[4]:SetSize(3, height)
-  place(A.title, inset, -(9+9*density), inner)
-  place(A.spec, inset, -(31+21*density), inner)
+  -- Build the top stack from unfitted font targets, so shorter text can grow
+  -- back without invalidating clearance. Budget rows between it and the footer.
+  local titleTop = 4+14*density
+  local specTop = titleTop+(A.title.desiredSize or 21)+4
+  place(A.title, inset, -titleTop, inner)
+  place(A.spec, inset, -specTop, inner)
   local gap = 10
   local half = (inner-gap)/2
-  place(A.buttons[1], inset, -(51+44*density), half)
-  place(A.buttons[2], inset+half+gap, -(51+44*density), half)
-  place(A.headers.current, inset+inner*0.52, -(88+61*density), inner*0.48)
-  place(A.headers.target, inset, -(88+61*density), inner*0.52)
-  local start = 106+64*density
-  local step = 62 + (math.max(62, (height-280)/4)-62)*density
-  local trackOffset = 25+9*density
-  local minOffset = 47+14*density
-  local trackHeight = 16+4*density
+  -- Reserve the maximum heading size even when the current spec is fitted down;
+  -- a subsequent shorter name may restore that size without another layout.
+  local buttonTop=math.max(51+44*density,specTop+(A.spec.desiredSize or 21)+4)
+  place(A.buttons[1], inset, -buttonTop, half)
+  place(A.buttons[2], inset+half+gap, -buttonTop, half)
+  local headerTop=buttonTop+math.max(A.buttons[1]:GetHeight(),A.buttons[2]:GetHeight())+4
+  place(A.headers.current, inset+inner*0.52, -headerTop, inner*0.48)
+  place(A.headers.target, inset, -headerTop, inner*0.52)
+  local start = headerTop+secondarySize+4
+  local footerButtonTop = height-(4+21*density)-A.buttons[3]:GetHeight()
+  local footerGap = 4+math.min(4,math.max(0,(height-424)/4))
+  local statusTop = footerButtonTop-secondarySize-footerGap
+  local trackOffset = 28+9*density
+  local minOffset = 47+18*density
+  local rowExtent = minOffset+secondarySize
+  local step = (statusTop-footerGap-start-rowExtent)/(#A.rows-1)
+  local trackHeight = 12+8*density
   for i,row in ipairs(A.rows) do
     local y = -start-(i-1)*step
     place(row.label, inset, y, inner*0.52)
     place(row.current, inset+inner*0.52, y, inner*0.48)
     row.track:ClearAllPoints()
-    row.track:SetPoint("TOPLEFT", panel, "TOPLEFT", inset+3, y-trackOffset)
+    row.trackX,row.trackY=inset+3,y-trackOffset
+    row.track:SetPoint("TOPLEFT", panel, "TOPLEFT", row.trackX,row.trackY)
     row.barWidth = inner-6
+    row.trackHeight=trackHeight
     row.track:SetSize(row.barWidth, trackHeight)
-    row.interval:SetHeight(trackHeight+4)
-    -- Keep marker ink out of the heading and endpoint-number lines.
-    row.markerCurrent:SetSize(3, trackHeight+4)
-    row.markerMin:SetSize(3, 5+2*density)
-    row.markerMax:SetSize(3, 5+2*density)
-    row.meanHeight = 5+2*density
-    row.markerMean:SetSize(row.meanHeight, row.meanHeight)
-    row.meanStem:SetSize(2,2)
+    local physical=panel:GetEffectiveScale()*(A.pixelDensity or 1)
+    local pixel=1/physical
+    row.markerInset=3*pixel
+    local markerHeight=trackHeight+8*pixel
+    for role,mark in pairs({current=row.markerCurrent,min=row.markerMin,mean=row.markerMean,max=row.markerMax}) do
+      local thick=(role=="current" and 5 or role=="mean" and 3 or 2)*pixel
+      mark:SetSize(thick,markerHeight)
+      row.outline[role]:SetSize(thick+2*pixel,markerHeight+2*pixel)
+      row.markerHit[role]:SetSize(8*pixel,markerHeight)
+    end
+    row.outlineCurrent=row.outline.current
+    row.glow:SetSize(math.min(row.barWidth*0.32,100*pixel),trackHeight+20*pixel)
     row.fill:ClearAllPoints()
     row.fill:SetPoint("TOPLEFT", row.track, "TOPLEFT", 0, 0)
     row.fill:SetHeight(trackHeight)
@@ -434,23 +665,43 @@ function A.Layout(width, height)
     if row.hasCache then meanLabel(row,row.cachedRating and row.cachedRating.bounds) end
     place(row.max, inset+2*(column+6), y-minOffset, column)
     place(row.axisStatus, inset+7, y-trackOffset-1, inner-14)
+    for role,font in pairs({current=row.current,min=row.min,mean=row.target,max=row.max}) do
+      local hit=row.hit[role]
+      hit:ClearAllPoints()
+      local x=inset
+      local hitY=y-minOffset
+      if role=="current" then x=inset+inner*0.52; hitY=y
+      elseif role=="mean" then x=inset+column+6
+      elseif role=="max" then x=inset+2*(column+6) end
+      hit.columnX,hit.columnY=x,hitY
+      hit:SetPoint("TOPLEFT",panel,"TOPLEFT",x,hitY)
+      hit:SetSize(font:GetWidth(),role=="current" and (row.current.desiredSize or 20) or secondarySize)
+    end
     row.hoverFrame:ClearAllPoints()
     row.hoverFrame:SetPoint("TOPLEFT",panel,"TOPLEFT",inset,y)
-    row.hoverFrame:SetSize(inner,step-2)
+    -- Row spacing grows with panel height; it is not the row's hit height.
+    -- In particular the final row must never intercept status/footer input.
+    row.hoverFrame:SetSize(inner,rowExtent)
+    row.hoverFrame:EnableMouse(false)
     if A.visible and row.hasCache then redrawBar(row) end
   end
-  place(A.status, inset, -height+(62+46*density), inner)
+  place(A.status, inset, -statusTop, inner)
+  A.metadataHit:ClearAllPoints()
+  A.metadataHit:SetPoint("TOPLEFT",panel,"TOPLEFT",inset,-statusTop)
+  A.metadataHit.columnX,A.metadataHit.columnY=inset,-statusTop
+  A.metadataHit:SetSize(inner,secondarySize)
   local third = (inner-2*gap)/3
-  place(A.buttons[3], inset, -height+(38+21*density), third)
-  place(A.buttons[4], inset+third+gap, -height+(38+21*density), third)
-  place(A.buttons[5], inset+2*(third+gap), -height+(38+21*density), third)
+  place(A.buttons[3], inset, -footerButtonTop, third)
+  place(A.buttons[4], inset+third+gap, -footerButtonTop, third)
+  place(A.buttons[5], inset+2*(third+gap), -footerButtonTop, third)
   for _,widget in ipairs(A.buttons) do widget.caption:SetWidth(widget:GetWidth()-12) end
+  fitTypography()
 end
 local function createPanel()
   if A.panel or not CharacterFrame or not PaperDollFrame then return end
   local panel = CreateFrame("Frame", "StatCompassPanel", CharacterFrame)
   panel:SetSize(468, 750)
-  panel:EnableMouse(true)
+  panel:EnableMouse(false)
   panel:SetPoint("TOPLEFT", CharacterFrame, "TOPRIGHT", 0, 0)
   panel.base = panel:CreateTexture(nil, "BACKGROUND", nil, -8)
   panel.base:SetAllPoints()
@@ -483,16 +734,30 @@ local function createPanel()
       target = label(panel, 16, y-61, 436, T("unknown")),
       axisStatus = label(panel, 23, y-30, 422, T("axisUnavailableShort")),
       track = texture(panel, "ARTWORK", 430, 20),
-      fill = texture(panel, "ARTWORK", 1, 20),
-      interval = texture(panel, "BORDER", 1, 24),
-      markerCurrent = texture(panel, "OVERLAY", 3, 28),
-      markerMin = texture(panel, "OVERLAY", 3, 15),
-      markerMean = texture(panel, "OVERLAY", 7, 7),
-      meanStem = texture(panel, "OVERLAY", 2, 2),
-      markerMax = texture(panel, "OVERLAY", 3, 15),
+      band = texture(panel, "ARTWORK", 1, 20, 1),
+      bandCue = texture(panel, "ARTWORK", 1, 20, 1),
+      fill = texture(panel, "ARTWORK", 1, 20, 2),
+      glow = texture(panel, "OVERLAY", 100, 40, 0),
+      markerCurrent = texture(panel, "OVERLAY", 3, 28, 4),
+      markerMin = texture(panel, "OVERLAY", 3, 15, 2),
+      markerMean = texture(panel, "OVERLAY", 3, 28, 2),
+      markerMax = texture(panel, "OVERLAY", 3, 15, 2),
       hoverFrame = CreateFrame("Frame",nil,panel),
       palette = PALETTE[key], neutralColor = NEUTRAL,
     }
+    row.outline={}
+    row.bandHit=tooltipHit(panel,function() return row.bandTip end)
+    -- The bar-only target stays below the independent marker/value targets.
+    row.bandHit:SetFrameLevel(panel:GetFrameLevel())
+    row.markerHit={}
+    row.hit={}
+    for _,role in ipairs({"current","min","mean","max"}) do
+      -- Keep current ink above coincident references, without extending its height.
+      row.outline[role]=texture(panel,"OVERLAY",5,30,role=="current" and 3 or 1)
+      row.markerHit[role]=tooltipHit(panel,function() return row.tip and row.tip[role] end)
+      row.hit[role]=tooltipHit(panel,function() return row.tip and row.tip[role] end)
+    end
+    row.outlineCurrent=row.outline.current
     row.current:SetJustifyH("RIGHT")
     row.max:SetJustifyH("RIGHT")
     row.target:SetJustifyH("CENTER")
@@ -500,41 +765,19 @@ local function createPanel()
     row.current:SetTextColor(1,1,1,1)
     row.min:SetTextColor(0.77,0.81,0.84,1)
     row.max:SetTextColor(0.77,0.81,0.84,1)
-    row.hoverFrame:EnableMouse(true)
-    row.hoverFrame:SetScript("OnEnter",function(self)
-      A.tooltipOpen=true
-      A.tooltipOwner=self
-      GameTooltip:SetOwner(self,"ANCHOR_RIGHT")
-      if not A.TooltipIsOwned(self) then clearTooltipState(); return end
-      GameTooltip:SetText(row.tooltipText or T("unavailableHelp"),1,1,1,1,true)
-      GameTooltip:Show()
-    end)
-    row.hoverFrame:SetScript("OnLeave",function()
-      leaveTooltip(row.hoverFrame)
-    end)
+    row.hoverFrame:EnableMouse(false)
     A.rows[i] = row
   end
   A.status = label(panel, 16, -642, 436, T("noData"))
+  A.metadataHit=tooltipHit(panel,function() return A.metadataText end)
   A.buttons[3] = button(panel, 16, -691, 138, T("default"), function() A.SetSkin("default") end)
   A.buttons[4] = button(panel, 165, -691, 138, T("flat"), function() A.SetSkin("flat") end)
   A.buttons[5] = button(panel, 314, -691, 138, T("reset"), function() A.ResetSettings() end)
   A.Layout(468,750)
-  panel:SetScript("OnEnter", function(self)
-    if A.IsPublic(GameTooltip) and GameTooltip and A.tooltipText then
-      A.tooltipOpen = true
-      A.tooltipOwner = self
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      if not A.TooltipIsOwned(self) then clearTooltipState(); return end
-      GameTooltip:SetText(A.tooltipText, 1,1,1,1,true)
-      GameTooltip:Show()
-    end
-  end)
-  panel:SetScript("OnLeave", function() leaveTooltip(panel) end)
   panel:HookScript("OnHide", function()
-    leaveTooltip(panel)
-    for _,row in ipairs(A.rows) do
-      if A.TooltipIsOwned(row.hoverFrame) then GameTooltip:Hide(); break end
-    end
+    local owner=A.tooltipOwner
+    if A.TooltipIsOwned(owner) then GameTooltip:Hide() end
+    clearTooltipState()
   end)
   panel:Hide()
 end
@@ -552,6 +795,7 @@ local function sync()
       A.panel:Hide()
     end
   else
+    hostFont,searchedHost=nil,nil
     A.SetVisible(false)
     A.panel:Hide()
   end

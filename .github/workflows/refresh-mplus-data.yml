@@ -52,6 +52,8 @@ jobs:
           key: mplus-state-${{ github.run_id }}
           restore-keys: mplus-state-
 
+      # A full first scan with hero talent cohorts needed about 30,000 requests (season 18).
+      # 36,000 is Blizzard's hourly limit; weekly incremental runs need far less.
       - name: Certify top 30 per specialization
         env:
           BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
@@ -59,7 +61,7 @@ jobs:
         run: |
           mkdir -p "$OUT_DIR"
           python tools/providers/blizzard_mplus.py \
-            --max-requests 34000 --max-profiles 400 \
+            --max-requests 36000 --max-profiles 400 --hero-walk-deep 400 \
             --state "$STATE_DIR/mplus-state.json.gz" \
             --output "$OUT_DIR/report.json" \
             --observations "$OUT_DIR/observations.json" > /dev/null

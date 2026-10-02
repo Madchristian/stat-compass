@@ -30,7 +30,7 @@ def test_full_height_and_four_native_bars_in_both_skins():
         local r=StatCompass.rows[i]
         assert(r.track and r.fill and r.markerCurrent and r.markerMin and r.markerMax)
         assert(r.min.text:find("%d") and r.max.text:find("%d"))          -- cohort rating range from Core
-        assert(r.current.text:find("%%") and not r.fill.shown)            -- no own rating in this mock
+        assert(r.current.text=="Unknown" and not r.fill.shown)            -- no own rating in this mock
         assert(not r.markerCurrent.shown and r.markerMin.shown and r.markerMax.shown)
         assert(r.track.width>200)
       end
@@ -71,8 +71,8 @@ def test_endpoint_coincidence_and_current_outside_cohort_are_numbered():
       GetSpellCritChance=function() return 90 end
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local r=StatCompass.rows[1]
-      assert(r.min.text:find("900") and r.max.text:find("900"))          -- coincident cohort endpoints
-      assert(r.current.text:find("90.0%%"))
+      assert(r.min.text:find("32.1%%") and r.max.text:find("32.1%%"))          -- coincident cohort endpoints
+      assert(r.current.text=="Unknown")
       assert(r.markerMin.shown and r.markerMax.shown and not r.markerCurrent.shown)
     ''')
 
@@ -102,7 +102,7 @@ def test_movement_resize_scale_and_viewport_reflow_without_stat_reads():
       UIParent:SetScale(0.9)
       matched()
       assert(reads==1)
-      assert(StatCompass.headers.target.text=="Wertungs-Vergleich")
+      assert(StatCompass.headers.target.text=="Sekundärwert-Anteile")
       UIParent.right=740
       UIParent:SetSize(740,1080)
       matched()
@@ -131,9 +131,9 @@ def test_large_finite_axis_and_marker_bounds():
       GetMasteryEffect=function() return 1e308 end
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local r=StatCompass.rows[3]
-      assert(r.axis==900)                                    -- rating axis, unaffected by extreme percentages
-      assert(r.current.text:find("1.0e+308",1,true))
-      assert(r.min.text:find("800") and r.max.text:find("800"))
+      assert(r.axis==35)                                    -- rating axis, unaffected by extreme percentages
+      assert(r.current.text=="Unknown")
+      assert(r.min.text:find("28.6%%") and r.max.text:find("28.6%%"))
       assert(not r.fill.shown)
       for i=1,4 do
         local row=StatCompass.rows[i]

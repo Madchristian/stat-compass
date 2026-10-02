@@ -211,10 +211,10 @@ def test_toc_load_order_and_initial_show(lua):
       assert(not StatCompass.visible)
       PaperDollFrame:Show()
       assert(StatCompass.visible)
-      assert(StatCompass.rows[1].current.text:find("21.0%%"))
-      assert(StatCompass.rows[3].current.text:find("32.0%%"))
-      assert(StatCompass.rows[4].current.text:find("12.0%%"))
-      assert(StatCompass.status.text==StatCompass.Text("noData","enUS"))
+      assert(StatCompass.rows[1].current.text=="Unknown")
+      assert(StatCompass.rows[3].current.text=="Unknown")
+      assert(StatCompass.rows[4].current.text=="Unknown")
+      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
     ''')
 
 def test_hidden_events_and_visible_burst(lua):

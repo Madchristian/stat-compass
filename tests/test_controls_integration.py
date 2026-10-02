@@ -27,7 +27,7 @@ def test_controls_initialize_before_lazy_character_and_after_savedvariables(init
       assert(A.panel and not A.visible)
       A.minimapButton.scripts.OnClick(A.minimapButton,"LeftButton")
       assert(A.visible and A.buttons[2].selected and A.buttons[3].selected)
-      assert(A.rows[1].current.text:find("21.0%%"))
+      assert(A.rows[1].current.text=="Unknown")
       assert(A.GetTarget(71,"mythic")==nil)
       local frames=widgets.frames
       Fire("PLAYER_LOGIN")

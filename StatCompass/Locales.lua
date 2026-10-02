@@ -1,6 +1,14 @@
 StatCompass = StatCompass or {}
 StatCompass.locale = {
   enUS = {
+    shareHeading = "Secondary budget shares", shareCurrent = "Your share",
+    ownBudgetShare = "Your secondary budget share", independentBudgetShare = "Your share (no comparison)",
+    shareAxisUnavailable = "No comparison; own share only",
+    shareReferenceAvailable = "Verified share reference available", shareNoData = "No verified share reference",
+    shareReferenceUnavailable = "No verified share reference. Any own share shown is independent of the comparison.",
+    shareHelp = "Share of your secondary stats. The marked band shows where the middle half of top players lies.",
+    shareDescriptive = "The distribution and mean describe the sample. They do not guarantee a balanced build or your personal optimum.",
+
     middle50 = "Middle 50 %% of top players: %s – %s",
     referenceUnavailable = "No verified rating reference is available. Current percentages are shown separately.",
     skin = "Skin", minimap = "Minimap button", shown = "Shown", hidden = "Hidden",
@@ -25,6 +33,14 @@ StatCompass.locale = {
     glowCloseness = "Glow shows closeness to the cohort average within the observed spread.",
   },
   deDE = {
+    shareHeading = "Sekundärwert-Anteile", shareCurrent = "Dein Anteil",
+    ownBudgetShare = "Dein Sekundärwert-Anteil", independentBudgetShare = "Dein Anteil (ohne Vergleich)",
+    shareAxisUnavailable = "Kein Vergleich; nur eigener Anteil",
+    shareReferenceAvailable = "Geprüfte Anteilsverteilung verfügbar", shareNoData = "Keine geprüfte Anteilsverteilung",
+    shareReferenceUnavailable = "Keine geprüfte Anteilsverteilung. Ein angezeigter eigener Anteil ist unabhängig vom Vergleich.",
+    shareHelp = "Anteil an deinen Sekundärwerten. Die markierte Spanne zeigt, wo die mittlere Hälfte der Top-Spieler liegt.",
+    shareDescriptive = "Verteilung und Mittelwert beschreiben die Stichprobe. Sie garantieren keinen ausgewogenen Build oder dein persönliches Optimum.",
+
     middle50 = "Mittlere 50 %% der Top-Spieler: %s – %s",
     referenceUnavailable = "Keine geprüfte Wertungsverteilung verfügbar. Aktuelle Prozentwerte erscheinen separat.",
     skin = "Design", minimap = "Minikartensymbol", shown = "Sichtbar", hidden = "Ausgeblendet",

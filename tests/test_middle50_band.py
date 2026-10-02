@@ -4,25 +4,25 @@ from tests.test_addon import load_runtime, run
 from tests.test_footer_pointer import POINTER
 
 INVALID = [
-    'item.reference.lowRating=nil; item.reference.highRating=nil',
-    'item.reference.lowRating=nil', 'item.reference.highRating=nil',
-    'item.reference.lowRating=false', 'item.reference.highRating="700"',
-    'item.reference.lowRating=701', 'item.reference.lowRating=-1',
-    'item.reference.highRating=1001', 'item.reference.lowRating=math.huge',
-    'item.reference.highRating=-math.huge', 'item.reference.lowRating=0/0',
-    'item.reference.highRating=0/0', 'item.reference.lowRating={secret=true}',
-    'item.reference.highRating={secret=true}',
-    'item.reference.lowRating=setmetatable({},{__lt=function() error("unsafe scalar") end})',
+    'item.reference.lowShare=nil; item.reference.highShare=nil',
+    'item.reference.lowShare=nil', 'item.reference.highShare=nil',
+    'item.reference.lowShare=false', 'item.reference.highShare="70"',
+    'item.reference.lowShare=70.1', 'item.reference.lowShare=-1',
+    'item.reference.highShare=100.1', 'item.reference.lowShare=math.huge',
+    'item.reference.highShare=-math.huge', 'item.reference.lowShare=0/0',
+    'item.reference.highShare=0/0', 'item.reference.lowShare={secret=true}',
+    'item.reference.highShare={secret=true}',
+    'item.reference.lowShare=setmetatable({},{__lt=function() error("unsafe scalar") end})',
 ]
 
 
 SETUP = '''
 Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
 a=StatCompass; r=a.rows[1]
-item={currentRating=950,axisMaxRating=1000,axisVerified=true,
+item={currentShare=95,axisMaxShare=100,axisVerified=true,
  axisProvenance="observed scale",sourceStatus="verified",sampleCount=27,
- reference={minRating=100,meanRating=500,maxRating=900,lowRating=300,highRating=700}}
-function render() a.Render({ratingComparison={crit=item}}) end
+ reference={minShare=10,meanShare=50,maxShare=90,lowShare=30,highShare=70}}
+function render() a.Render({shareComparison={crit=item}}) end
 render()
 '''
 
@@ -30,7 +30,7 @@ render()
 def test_consumes_provider_middle50_with_real_behind_layer():
     lua=load_runtime()
     run(lua, SETUP+'''
-      assert(r.cachedRating.bounds.low==300 and r.cachedRating.bounds.high==700,"provider band not consumed")
+      assert(r.cachedShare.bounds.low==30 and r.cachedShare.bounds.high==70,"provider band not consumed")
       assert(r.band.shown and r.bandHit:IsShown())
       local span=r.barWidth-2*r.markerInset
       assert(math.abs(r.band.width-span*0.4)<0.001)
@@ -40,7 +40,7 @@ def test_consumes_provider_middle50_with_real_behind_layer():
       assert(r.fill.color[4]<1,"opaque own fill hides underlying band")
       assert(r.markerMin.shown and r.markerMean.shown and r.markerMax.shown)
       r.bandHit.scripts.OnEnter(r.bandHit)
-      assert(GameTooltip.text=="Middle 50 % of top players: 300 – 700")
+      assert(GameTooltip.text=="Middle 50 % of top players: 30.0% – 70.0%")
       assert(not r.hoverFrame.mouseEnabled and not a.panel.mouseEnabled)
     ''')
 
@@ -54,7 +54,7 @@ def test_invalid_band_clears_without_losing_existing_markers(mutation):
     '''+mutation+'''
       render()
       assert(not r.band.shown and not r.bandCue.shown and not r.bandHit:IsShown())
-      assert(r.cachedRating.bounds.low==nil and r.cachedRating.bounds.high==nil)
+      assert(r.cachedShare.bounds.low==nil and r.cachedShare.bounds.high==nil)
       assert(r.markerMin.shown and r.markerMean.shown and r.markerMax.shown)
       assert(r.fill.color[4]==1 and not GameTooltip.shown)
       assert(not a.tooltipOpen)
@@ -64,9 +64,9 @@ def test_invalid_band_clears_without_losing_existing_markers(mutation):
 @pytest.mark.parametrize('mutation', [
     'item.sourceStatus=false', 'item.sourceStatus="unverified"',
     'item.sourceStatus={secret=true}', 'item.axisVerified=false',
-    'item.axisVerified={secret=true}', 'item.axisMaxRating=0',
-    'item.axisMaxRating=-1', 'item.axisMaxRating=math.huge',
-    'item.axisMaxRating=0/0', 'item.axisMaxRating={secret=true}',
+    'item.axisVerified={secret=true}', 'item.axisMaxShare=0',
+    'item.axisMaxShare=-1', 'item.axisMaxShare=math.huge',
+    'item.axisMaxShare=0/0', 'item.axisMaxShare={secret=true}',
     'item.axisProvenance=nil', 'item.reference={secret=true}',
     'item.reference=false',
     'item.reference=setmetatable({},{__index=function() error("unsafe reference") end})',
@@ -80,12 +80,12 @@ def test_invalid_source_axis_or_containers_fail_closed(mutation):
     ''')
 
 
-@pytest.mark.parametrize('low,high', [(0,1000),(0,0),(1000,1000),(500,500)])
+@pytest.mark.parametrize('low,high', [(0,100),(0,0),(100,100),(50,50)])
 def test_axis_endpoints_and_zero_width_are_truthful(low,high):
     lua=load_runtime()
     run(lua, SETUP+f'''
-      item.reference.lowRating={low}; item.reference.highRating={high}; render()
-      local expected=(r.barWidth-2*r.markerInset)*({high}/1000-{low}/1000)
+      item.reference.lowShare={low}; item.reference.highShare={high}; render()
+      local expected=(r.barWidth-2*r.markerInset)*({high}/100-{low}/100)
       assert(math.abs(r.bandWidth-expected)<0.001)
       if {low}=={high} then
         assert(not r.band.shown and r.bandCue.shown)
@@ -103,7 +103,7 @@ def test_axis_endpoints_and_zero_width_are_truthful(low,high):
 ])
 def test_outer_rating_container_is_not_indexed(container):
     lua=load_runtime()
-    run(lua, SETUP+'a.Render({ratingComparison='+container+'})'+'''
+    run(lua, SETUP+'a.Render({shareComparison='+container+'})'+'''
       assert(not r.band.shown and not r.bandHit:IsShown())
     ''')
 
@@ -111,10 +111,10 @@ def test_outer_rating_container_is_not_indexed(container):
 def test_band_not_derived_from_markers_and_inherited_quartiles_rejected():
     lua=load_runtime()
     run(lua, SETUP+'''
-      item.reference={lowRating=300,highRating=700}; render()
+      item.reference={lowShare=30,highShare=70}; render()
       assert(r.band.shown and not r.markerMean.shown and not r.markerMin.shown and not r.markerMax.shown)
-      item.reference=setmetatable({minRating=100,meanRating=500,maxRating=900},
-        {__index={lowRating=300,highRating=700}})
+      item.reference=setmetatable({minShare=10,meanShare=50,maxShare=90},
+        {__index={lowShare=30,highShare=70}})
       render()
       assert(not r.band.shown and r.markerMin.shown and r.markerMean.shown and r.markerMax.shown)
       item.reference=setmetatable({secret=true},{__index=function() error("secret ref") end})
@@ -125,11 +125,11 @@ def test_band_not_derived_from_markers_and_inherited_quartiles_rejected():
 def test_band_does_not_change_glow_proximity_or_palette():
     lua=load_runtime()
     run(lua, SETUP+'''
-      item.currentRating=550; render()
+      item.currentShare=55; render()
       local alpha=r.glow.color[4]; local red=r.fill.color[1]
-      item.reference.lowRating=650; item.reference.highRating=800; render()
+      item.reference.lowShare=65; item.reference.highShare=80; render()
       assert(r.glow.color[4]==alpha and r.fill.color[1]==red)
-      item.reference.highRating=nil; render()
+      item.reference.highShare=nil; render()
       assert(r.glow.color[4]==alpha and r.fill.color[1]==red)
     ''')
 
@@ -141,13 +141,13 @@ def test_german_tooltip_refresh_skin_and_foreign_ownership():
         a.SetSkin(skin); render()
         assert(r.band.color[4]>0 and r.band.shown)
         r.bandHit.scripts.OnEnter(r.bandHit)
-        assert(GameTooltip.text=="Mittlere 50 % der Top-Spieler: 300 – 700")
-        item.reference.highRating=800; render()
-        assert(GameTooltip.text=="Mittlere 50 % der Top-Spieler: 300 – 800")
-        item.reference.highRating=700; render()
+        assert(GameTooltip.text=="Mittlere 50 % der Top-Spieler: 30.0% – 70.0%")
+        item.reference.highShare=80; render()
+        assert(GameTooltip.text=="Mittlere 50 % der Top-Spieler: 30.0% – 80.0%")
+        item.reference.highShare=70; render()
       end
       local foreign=CreateFrame("Frame"); GameTooltip:SetOwner(foreign); GameTooltip:SetText("foreign")
-      item.reference.highRating=nil; render()
+      item.reference.highShare=nil; render()
       assert(GameTooltip.text=="foreign" and GameTooltip.shown)
     ''')
 
@@ -155,7 +155,7 @@ def test_german_tooltip_refresh_skin_and_foreign_ownership():
 def test_band_footer_and_marker_pointer_targets_with_valid_band():
     lua=load_runtime(POINTER)
     run(lua, SETUP+'''
-      a.Render({ratingComparison={crit=item,haste=item,mastery=item,versatility=item}})
+      a.Render({shareComparison={crit=item,haste=item,mastery=item,versatility=item}})
       for _,height in ipairs({424,530,750,1080}) do
         a.Layout(450,height)
         local h=r.bandHit; local scale=h:GetEffectiveScale()

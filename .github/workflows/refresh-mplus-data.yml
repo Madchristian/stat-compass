@@ -1,0 +1,87 @@
+name: Refresh M+ cohort data
+
+# Weekly, after the EU weekly reset (Wednesday 04:00 UTC), so the previous week is complete.
+# Closed weeks are cached as an aggregated state; only the current week is fetched again.
+on:
+  schedule:
+    - cron: "30 6 * * 3"
+  workflow_dispatch:
+    inputs:
+      full_scan:
+        description: "Ignore the cached state and scan every week again"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-mplus-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # outside the workspace, so nothing here can be committed or packaged
+      - name: Set paths
+        run: |
+          echo "STATE_DIR=$RUNNER_TEMP/mplus-state" >> "$GITHUB_ENV"
+          echo "OUT_DIR=$RUNNER_TEMP/mplus-out" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: python -m pip install "lupa==2.6" "pytest==8.4.2"
+
+      - name: Run tests
+        run: python -m pytest -q -p no:cacheprovider
+
+      # The state holds character identities of closed weeks. It lives only in this repository's
+      # private Actions cache; the provider discards it after 27 days or on a new season.
+      - name: Restore closed-week state
+        if: ${{ !inputs.full_scan }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.STATE_DIR }}
+          key: mplus-state-${{ github.run_id }}
+          restore-keys: mplus-state-
+
+      - name: Certify top 30 per specialization
+        env:
+          BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
+          BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
+        run: |
+          mkdir -p "$OUT_DIR"
+          python tools/providers/blizzard_mplus.py \
+            --max-requests 34000 --max-profiles 400 \
+            --state "$STATE_DIR/mplus-state.json.gz" \
+            --output "$OUT_DIR/report.json" \
+            --observations "$OUT_DIR/observations.json" > /dev/null
+
+      # Saved even when certification fails: the closed weeks were stored before the current week.
+      - name: Save closed-week state
+        if: ${{ always() }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.STATE_DIR }}
+          key: mplus-state-${{ github.run_id }}
+
+      - name: Generate Data.lua candidate
+        run: python tools/blizzard_dataset.py --observations "$OUT_DIR/observations.json" --output "$OUT_DIR/Data.lua"
+
+      - name: Summary
+        if: ${{ always() }}
+        run: python tools/mplus_summary.py "$OUT_DIR/report.json" >> "$GITHUB_STEP_SUMMARY"
+
+      # Identity-free outputs only: report, observations and the candidate Data.lua.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mplus-data-${{ github.run_number }}
+          path: ${{ env.OUT_DIR }}
+          retention-days: 30

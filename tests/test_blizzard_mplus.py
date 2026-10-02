@@ -85,10 +85,12 @@ def test_extract_stats_uses_paperdoll_crit_and_rejects_incomplete():
     assert bz.extract_stats(None) is None
 
 
-def character(i, spec_id, *, valid=True, active=None, level=90, stats=True, ilvl=None):
+def character(i, spec_id, *, valid=True, active=None, level=90, stats=True, ilvl=None, hero=(66, "Master of Harmony")):
     base = f"/profile/wow/character/synthetic-realm/synthetic{i}"
     out = {base + "/status": {"id": i, "is_valid": valid},
-           base: {"id": i, "level": level, "active_spec": {"id": active or spec_id}, "equipped_item_level": ilvl or 700 + i}}
+           base: {"id": i, "level": level, "active_spec": {"id": active or spec_id}, "equipped_item_level": ilvl or 700 + i},
+           base + "/specializations": {"active_specialization": {"id": active or spec_id},
+                                       "active_hero_talent_tree": {"id": hero[0], "name": hero[1]}}}
     if stats:
         out[base + "/statistics"] = statistics(crit=10.0 + i)
     return out
@@ -315,8 +317,10 @@ def test_state_round_trip_and_invalidation(tmp_path):
                     members=[dict(id=5, name="Synthetic5", realm="synthetic-realm", realmId=11, spec=62)]))
     path = tmp_path / "state.json.gz"
     bz.save_state(path, ranker, season_id=18, closed={1076, 1077}, floors=[(100, 7, 500, 401.5)], dungeons=[7],
-                  created_at=1800000000)
-    loaded, closed, floors, dungeons, created = bz.load_state(path, season_id=18, min_rating=300.0, now=1800000000 + 86400)
+                  created_at=1800000000, heroes={5: (62, 39, "Spellslinger")}, hero_times={5: 1800000100})
+    loaded, closed, floors, dungeons, created, heroes, times = bz.load_state(path, season_id=18, min_rating=300.0,
+                                                                             now=1800000000 + 86400)
+    assert heroes == {5: (62, 39, "Spellslinger")} and times == {5: 1800000100}
     assert loaded.best == {(62, 5): {7: 450.0}} and loaded.identity == {5: ("synthetic-realm", "Synthetic5", 11)}
     assert closed == {1076, 1077} and floors == [(100, 7, 500, 401.5)] and dungeons == [7] and created == 1800000000
     assert bz.load_state(path, season_id=19, min_rating=300.0, now=1800000000) is None  # new season
@@ -342,3 +346,59 @@ def test_workflow_keeps_identities_out_of_artifacts():
     assert "${{ runner.temp }}" not in workflow.split("steps:")[0]  # runner context is unavailable at job level
     assert "STATE_DIR" not in workflow.split("upload-artifact")[1]
     assert "secrets.BLIZZARD_CLIENT_SECRET" in workflow and "contents: read" in workflow.split("jobs:")[0]
+
+
+def test_hero_cohorts_split_and_drop_thin_trees():
+    profiles = {c: season_profile(c, [(1, 400.0 - c, 62, True), (2, 390.0 - c, 62, True)]) for c in (1, 2, 3, 4)}
+    ranker = bz.SpecRanker()
+    for c in (1, 2, 3, 4):
+        for d in (1, 2):
+            ranker.add(dict(dungeon=d, rating=400.0 - c - 10 * (d - 1), level=20, period=1, duration=1, completed=c,
+                            members=[dict(id=c, name=f"Synthetic{c}", realm="synthetic-realm", realmId=11, spec=62)]))
+    responses = {}
+    for c, hero in ((1, (66, "Master of Harmony")), (2, (65, "Shado-Pan")), (3, (66, "Master of Harmony")), (4, (66, "Master of Harmony"))):
+        responses |= character(c, 62, ilvl=330, hero=hero)
+        responses[f"/profile/wow/character/synthetic-realm/synthetic{c}/mythic-keystone-profile/season/18"] = profiles[c]
+    client = FakeClient(responses)
+    cert = bz.Certifier(client, ranker, [1, 2], {}, {11: 100}, season_id=18, max_level=90, ilvl_gap=10)
+    spec_rows, _, _ = cert.run(62, target=4)
+    assert bz.hero_mix(spec_rows) == {"Master of Harmony": 3, "Shado-Pan": 1}
+    harmony, reasons, info = cert.run(62, target=3, hero_id=66, minimum=2, max_walk=10)
+    assert [r["heroTree"]["id"] for r in harmony] == [66, 66, 66] and [r["rank"] for r in harmony] == [1, 2, 3]
+    assert reasons == Counter({"heroTree": 1}) and info["certified"]
+    shado, _, info = cert.run(62, target=3, hero_id=65, minimum=2, max_walk=10)
+    assert shado == [] and info["insufficient"] == 1  # one Shado-Pan player is no cohort
+    statistics_calls = [p for p, _ in client.calls if p.endswith("/statistics")]
+    assert len(statistics_calls) == len(set(statistics_calls)) == 4  # checks are cached across cohorts
+
+
+def test_state_can_store_a_closed_week_snapshot(tmp_path):
+    ranker = bz.SpecRanker()
+    ranker.add(dict(dungeon=7, rating=450.0, level=20, period=1, duration=1, completed=1,
+                    members=[dict(id=5, name="Synthetic5", realm="synthetic-realm", realmId=11, spec=62)]))
+    closed_best = {key: dict(value) for key, value in ranker.best.items()}
+    ranker.add(dict(dungeon=8, rating=470.0, level=21, period=2, duration=1, completed=2,
+                    members=[dict(id=5, name="Synthetic5", realm="synthetic-realm", realmId=11, spec=62)]))
+    path = tmp_path / "state.json.gz"
+    bz.save_state(path, ranker, season_id=18, closed={1}, floors=[], dungeons=[7, 8], created_at=1800000000,
+                  best=closed_best, identity=dict(ranker.identity))
+    loaded = bz.load_state(path, season_id=18, min_rating=0.0, now=1800000000)[0]
+    assert loaded.best == {(62, 5): {7: 450.0}}  # the current week's run is never cached as closed
+
+
+def test_hero_popularity_counts_the_unbroken_top():
+    rows = [{"id": i} for i in range(1, 7)]
+    heroes = {1: (62, 39, "Spellslinger"), 2: (62, 39, "Spellslinger"), 3: (63, 40, "Sunfury"),  # 3 plays Fire now
+              4: (62, 40, "Sunfury"), 6: (62, 40, "Sunfury")}  # 5 never looked up: the sample ends there
+    assert bz.hero_popularity(rows, heroes, 62) == {"sample": 3, "trees": {"Spellslinger": 2, "Sunfury": 1}}
+    from tests.test_tools import load_tool
+    assert load_tool("mplus_summary").popularity({"sample": 4, "trees": {"Spellslinger": 3, "Sunfury": 1}}) == \
+        "Spellslinger 75 %, Sunfury 25 % (top 4)"
+
+
+def test_playable_specs_lists_official_hero_trees():
+    client = FakeClient({"/data/wow/playable-specialization/index": {"character_specializations": [{"id": 62, "name": "Arcane"}]},
+                         "/data/wow/playable-specialization/62": {"playable_class": {"name": "Mage"}, "role": {"type": "DAMAGE"},
+                                                                  "hero_talent_trees": [{"id": 40, "name": "Sunfury"},
+                                                                                        {"id": 39, "name": "Spellslinger"}]}})
+    assert bz.playable_specs(client)[62]["heroTrees"] == [(39, "Spellslinger"), (40, "Sunfury")]

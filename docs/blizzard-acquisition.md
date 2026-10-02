@@ -22,6 +22,10 @@ Stat Compass builds its Mythic+ comparison cohorts from Blizzard's official APIs
 
 A `--min-run-rating` pre-filter (default 300) drops weak runs while scanning. Its value is added to every upper bound, so a dropped run can never hide a contender.
 
+## Hero talent cohorts
+
+`/specializations` returns the active specialization and `active_hero_talent_tree` (ID and name). The certifier reads it first for every candidate; a player of the wrong spec or tree costs one request. For every hero tree seen among a spec's checked players, the same certification runs restricted to that tree, walking at most `--hero-walk` (150) ranked players. A tree with fewer than 20 usable players gets no cohort of its own: at the top, Brewmaster is almost entirely Master of Harmony (10 of 11), so a Shado-Pan cohort would compare against far weaker players. The spec cohort records the tree mix (`heroMix`). Like the stats, the tree is the one equipped now, not the one used in the ranked runs.
+
 ## Statistics
 
 `/profile/wow/character/{realm}/{name}/statistics`, with the Character-window semantics:
@@ -32,7 +36,7 @@ A `--min-run-rating` pre-filter (default 300) drops weak runs while scanning. It
 - Mastery `value` is the mastery **effect percent**: `value − rating_bonus` is constant per spec (that spec's base mastery).
 - Ratings come from `rating_normalized` (crit, haste, mastery) and from `versatility`.
 
-Mistweaver's mastery `value` (314–984) is not a percentage, so the generator excludes that spec until it is checked in game. Retribution haste of 86–104 % and Windwalker haste up to 62 % are reported by Blizzard as is and should be checked against the Character window.
+Mistweaver's mastery `value` is several hundred (314–984 in the season 18 cohort; about 249.5 + 0.678 × rating). It is exactly what the game returns from `GetMasteryEffect()`: 755.22 at 746 rating, checked in game against the predicted 755.3. The addon reads the player's own value through the same function, so Mistweaver mastery compares like every other spec; only the number exceeds 100. Retribution haste of 86–104 % and Windwalker haste up to 62 % are reported by Blizzard as is and should be checked against the Character window.
 
 The values describe the gear a player has **equipped now**, not their gear during the ranked runs. Blizzard provides no per-run statistics.
 

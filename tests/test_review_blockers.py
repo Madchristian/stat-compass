@@ -46,7 +46,7 @@ def test_bar_geometry_repaints_without_stat_reads():
       assert(StatCompass.visible and reads==1)
       assert(row.barWidth~=firstWidth)
       assert(math.abs(row.fill.width/row.barWidth-fraction)<0.001)
-      assert(math.abs((row.markerCurrent.point[4]-1.5)/(row.barWidth-3)-fraction)<0.001)
+      assert(math.abs((row.markerCurrent.point[4]-row.markerInset)/(row.barWidth-2*row.markerInset)-fraction)<0.001)
       CharacterFrame:SetBounds(200,600,30,560)
       assert(StatCompass.visible and reads==1)
       assert(math.abs(row.fill.width/row.barWidth-fraction)<0.001)
@@ -63,9 +63,9 @@ def test_small_stat_has_useful_axis_and_zero_fallback():
       GetVersatilityBonus=function() return 0 end
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local haste=StatCompass.rows[2]
-      assert(haste.axis==nil and not haste.fill.shown)
+      assert(haste.axis==800 and not haste.fill.shown)       -- 700 rating cohort, +10%, rounded to 50
       local zero=StatCompass.rows[4]
-      assert(zero.axis==nil and not zero.markerCurrent.shown)
+      assert(zero.axis==450 and not zero.markerCurrent.shown)
     ''')
 
 
@@ -76,9 +76,10 @@ def test_coincident_ticks_have_separate_vertical_extent():
       StatCompass.Render({ratingComparison={haste={currentRating=50,axisMaxRating=100,axisVerified=true,axisProvenance="synthetic cap",sourceStatus="verified",reference={minRating=50,meanRating=50,maxRating=50}}}})
       local row=StatCompass.rows[2]
       assert(row.markerMin.point[4]==row.markerMax.point[4])
-      assert(row.markerMin.point[1]~=row.markerMax.point[1])
-      assert(row.markerMin.height~=row.markerCurrent.height)
-      assert(row.markerMax.height~=row.markerCurrent.height)
+      assert(row.markerMin.point[1]==row.markerMax.point[1])
+      assert(row.markerMin.height==row.markerCurrent.height)
+      assert(row.markerMax.height==row.markerCurrent.height)
+      assert(row.hit.min~=row.hit.mean and row.hit.mean~=row.hit.max)
       assert(row.min.text:find("Min") and row.max.text:find("Max"))
     ''')
 

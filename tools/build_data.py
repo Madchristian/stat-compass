@@ -56,11 +56,16 @@ def checked(manifest: dict, raw: bytes, *, now: int | None = None) -> dict:
     cohorts = manifest.get("cohorts")
     if not isinstance(cohorts, list) or not cohorts:
         raise ValueError("no cohorts")
+    hero_cohorts = manifest.get("heroCohorts", [])
+    if not isinstance(hero_cohorts, list):
+        raise ValueError("heroCohorts must be a list")
     result = dict(schema=3, interface=interface, clientBuild=client_build, level=level,
                   collectedAt=collected, observedAt=observed, expiresAt=expires,
                   sourceURL=source_url, rawSHA256=hashlib.sha256(raw).hexdigest(),
                   permission=permission, cohorts={})
-    for cohort in cohorts:
+    if hero_cohorts:
+        result["heroCohorts"] = {}
+    for cohort in cohorts + hero_cohorts:
         if not isinstance(cohort, dict):
             raise ValueError("cohort must be object")
         if cohort.get("region") != "EU" or cohort.get("mode") not in ("raid", "mythic"):
@@ -113,14 +118,25 @@ def checked(manifest: dict, raw: bytes, *, now: int | None = None) -> dict:
                 rating = row.get(RATINGS[stat])
                 if isinstance(rating, bool) or not isinstance(rating, (int, float)) or not math.isfinite(rating) or rating < 0:
                     raise ValueError(f"invalid {stat} rating")
-        modes = result["cohorts"].setdefault(spec_id, {})
+        mix = cohort.get("heroMix")
+        if mix is not None:
+            if not isinstance(mix, dict) or sum(positive_int(n, "heroMix count", len(rows)) for n in mix.values()) > len(rows):
+                raise ValueError("invalid heroMix")
+            for name in mix:
+                clean_text(name, "heroMix name")
+        if cohort in hero_cohorts:
+            hero_id = positive_int(cohort.get("heroTreeID"), "heroTreeID", 1000000)
+            clean_text(cohort.get("heroTreeName"), "heroTreeName")
+            modes = result["heroCohorts"].setdefault(spec_id, {}).setdefault(hero_id, {})
+        else:
+            modes = result["cohorts"].setdefault(spec_id, {})
         if latest_row != cohort_observed:
             raise ValueError("cohort observedAt summary mismatch")
         if cohort["mode"] in modes:
             raise ValueError("duplicate spec/mode cohort")
         modes[cohort["mode"]] = cohort
 
-    if max(cohort["observedAt"] for modes in result["cohorts"].values() for cohort in modes.values()) != observed:
+    if max(cohort["observedAt"] for cohort in cohorts + hero_cohorts) != observed:
         raise ValueError("dataset observedAt summary mismatch")
     return result
 
@@ -130,6 +146,8 @@ def lua_value(value):
         return "{" + ",".join(f"[{lua_value(k)}]={lua_value(v)}" for k, v in sorted(value.items(), key=lambda item: str(item[0]))) + "}"
     if isinstance(value, list):
         return "{" + ",".join(lua_value(item) for item in value) + "}"
+    if isinstance(value, bool):
+        return "true" if value else "false"
     if isinstance(value, str):
         clean_text(value, "Lua text")
         return json.dumps(value, ensure_ascii=False)

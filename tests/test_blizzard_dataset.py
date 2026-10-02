@@ -38,8 +38,8 @@ def test_generated_dataset_validates_in_runtime():
     build = load_tool("build_data")
     source = observations(**{"62": 30, "250": 35, "270": 30, "71": 12})
     data_manifest, skipped = tool.manifest(source, interface=120100, client_build=69933, level=90, now=NOW)
-    assert skipped == {270: "mastery value is not a percentage", 71: "only 12 usable players"}
-    assert [c["specID"] for c in data_manifest["cohorts"]] == [62, 250]
+    assert skipped == {71: "only 12 usable players"}
+    assert [c["specID"] for c in data_manifest["cohorts"]] == [62, 250, 270]
     assert all(c["selectedCount"] == 30 for c in data_manifest["cohorts"])  # capped at 30
     assert data_manifest["expiresAt"] == NOW - 600 + 30 * 86400
     raw = json.dumps(source).encode()
@@ -58,7 +58,7 @@ def test_generated_dataset_validates_in_runtime():
     target = lua.eval('StatCompass.GetTarget(62, "mythic")')
     assert target.sample == 30 and target.rating.crit.min == 901 and target.rating.crit.max == 930
     assert abs(target.range.crit.max - 23.0) < 1e-9
-    assert lua.eval('StatCompass.GetTarget(270, "mythic")') is None
+    assert lua.eval('StatCompass.GetTarget(270, "mythic")').rating.mastery.max == 800  # Mistweaver ships
 
 
 def test_stale_or_spread_observations_are_refused():
@@ -67,3 +67,107 @@ def test_stale_or_spread_observations_are_refused():
     source["specs"]["62"]["observations"][0]["observedAt"] = NOW - 3 * 86400
     with pytest.raises(ValueError, match="no cohort"):
         tool.manifest(source, interface=120100, client_build=69933, level=90, now=NOW)
+
+
+def test_hero_cohorts_are_preferred_in_runtime():
+    tool = load_tool("blizzard_dataset")
+    build = load_tool("build_data")
+    source = observations(**{"268": 30})
+    rows = source["specs"]["268"]["observations"]
+    for i, row in enumerate(rows):
+        row["heroTree"] = {"id": 66, "name": "Master of Harmony"} if i < 27 else {"id": 65, "name": "Shado-Pan"}
+    harmony = [dict(observation(i), heroTree={"id": 66, "name": "Master of Harmony"}, crit=40.0) for i in range(1, 31)]
+    shado = [dict(observation(i), heroTree={"id": 65, "name": "Shado-Pan"}) for i in range(1, 6)]
+    source["specs"]["268"]["heroes"] = {"66": {"name": "Master of Harmony", "observations": harmony},
+                                        "65": {"name": "Shado-Pan", "observations": shado}}
+    data_manifest, skipped = tool.manifest(source, interface=120100, client_build=69933, level=90, now=NOW)
+    assert skipped == {"268/Shado-Pan": "only 5 usable players"}
+    assert data_manifest["cohorts"][0]["heroMix"] == {"Master of Harmony": 27, "Shado-Pan": 3}
+    data = build.checked(data_manifest, json.dumps(source).encode(), now=NOW)
+    lua = LuaRuntime()
+    lua.execute(f"""
+      StatCompass = {{}}
+      GetBuildInfo = function() return "12.1.0", "69933", "", 120100 end
+      UnitLevel = function() return 90 end
+      GetServerTime = function() return {NOW} end
+    """)
+    lua.execute((ROOT / "StatCompass/Core.lua").read_text(encoding="utf-8"))
+    lua.execute("StatCompass.releaseData = " + build.lua_value(data))
+    hero = lua.eval('StatCompass.GetTarget(268, "mythic", 66)')
+    assert hero.heroTreeName == "Master of Harmony" and hero.crit == 40.0
+    spec = lua.eval('StatCompass.GetTarget(268, "mythic", 65)')  # no Shado-Pan cohort: whole spec
+    assert spec.heroTreeName is None and spec.heroMix["Shado-Pan"] == 3 and spec.crit < 40.0
+    assert lua.eval('StatCompass.GetTarget(268, "mythic")').sample == 30
+    lua.execute('StatCompass.releaseData.heroCohorts[268][66].mythic.heroTreeID = 65')
+    assert lua.eval('StatCompass.GetTarget(268, "mythic", 66)') is None  # mismatched tree invalidates the dataset
+    lua.execute('C_ClassTalents = {GetActiveHeroTalentSpec = function() return 66 end}')
+    assert lua.eval('StatCompass.ReadHeroTree()') == 66
+    lua.execute('C_ClassTalents.GetActiveHeroTalentSpec = function() error("unavailable") end')
+    assert lua.eval('StatCompass.ReadHeroTree()') is None
+
+
+def test_rating_comparison_feeds_the_bars():
+    from tests.test_addon import load_runtime, run
+    build = load_tool("build_data")
+    tool = load_tool("blizzard_dataset")
+    source = observations(**{"71": 30})
+    data_manifest, _ = tool.manifest(source, interface=120100, client_build=69933, level=90, now=NOW)
+    data = build.checked(data_manifest, b"synthetic", now=NOW)
+    lua = load_runtime("""
+      local ratings = {[9]=950, [10]=800, [11]=1000, [18]=700, [19]=700, [20]=700, [26]=746, [29]=2000}
+      function GetCombatRating(id) return ratings[id] end
+    """)
+    run(lua, "StatCompass.releaseData=" + build.lua_value(data))
+    run(lua, f"GetServerTime=function() return {NOW} end")
+    run(lua, '''
+      StatCompass.settings.mode = "mythic"
+      local r = StatCompass.ReadRatings()
+      assert(r.crit == 1000 and r.haste == 700 and r.mastery == 746 and r.versatility == 2000)
+      local snap = StatCompass.Snapshot()
+      local crit = snap.ratingComparison.crit
+      assert(crit.currentRating == 1000 and crit.sourceStatus == "verified" and crit.axisVerified == true)
+      assert(crit.reference.minRating == 901 and crit.reference.maxRating == 930 and crit.sampleCount == 30)
+      assert(crit.reference.lowRating == 908 and crit.reference.highRating == 923)  -- ranks ceil(30/4)=8, ceil(90/4)=23
+      assert(crit.axisMaxRating == 1100)                 -- own 1000 beats cohort 930: 1000 * 1.1
+      assert(snap.ratingComparison.haste.axisMaxRating == 800)   -- cohort 700 * 1.1 = 770 -> 800
+      assert(snap.ratingComparison.versatility.axisMaxRating == 2200)
+      assert(crit.axisProvenance:find("top 30"))
+      -- no cohort: only the own rating, nothing that could draw a reference
+      local empty = StatCompass.RatingComparison(nil, r)
+      assert(empty.crit.currentRating == 1000 and empty.crit.sourceStatus == "unavailable" and empty.crit.axisMaxRating == nil)
+      GetCombatRating = function() error("unavailable") end
+      assert(StatCompass.ReadRatings().crit == nil)
+    ''')
+
+
+def test_share_comparison_ignores_gear_level():
+    from tests.test_addon import load_runtime, run
+    build = load_tool("build_data")
+    tool = load_tool("blizzard_dataset")
+    source = observations(**{"71": 30})
+    for i, row in enumerate(source["specs"]["71"]["observations"]):
+        scale = 1 + i / 10  # same split, very different budgets (item levels)
+        row["ratings"] = {"crit": 400 * scale, "haste": 300 * scale, "mastery": 200 * scale, "versatility": 100 * scale}
+    data_manifest, _ = tool.manifest(source, interface=120100, client_build=69933, level=90, now=NOW)
+    data = build.checked(data_manifest, b"synthetic", now=NOW)
+    lua = load_runtime("""
+      local ratings = {[9]=200, [10]=200, [11]=200, [18]=150, [19]=150, [20]=150, [26]=100, [29]=50}
+      function GetCombatRating(id) return ratings[id] end
+    """)
+    run(lua, "StatCompass.releaseData=" + build.lua_value(data))
+    run(lua, f"GetServerTime=function() return {NOW} end")
+    run(lua, '''
+      StatCompass.settings.mode = "mythic"
+      local t = StatCompass.GetTarget(71, "mythic")
+      local function near(a, b) return math.abs(a - b) < 1e-9 end
+      assert(near(t.share.crit.min, 40) and near(t.share.crit.max, 40) and near(t.share.versatility.mean, 10))
+      assert(t.rating.crit.max > 3 * t.rating.crit.min)          -- ratings spread with gear level ...
+      local snap = StatCompass.Snapshot()
+      local crit = snap.shareComparison.crit                      -- ... shares do not
+      assert(near(crit.currentShare, 40) and near(crit.reference.lowShare, 40) and crit.sourceStatus == "verified")
+      assert(crit.axisMaxShare == 45 and crit.sampleCount == 30)  -- 40 * 1.1 = 44 -> 45
+      assert(near(snap.shareComparison.versatility.currentShare, 10))
+      GetCombatRating = function(id) if id == 26 then return nil end return 100 end
+      local partial = StatCompass.ShareComparison(t, StatCompass.ReadRatings())
+      assert(partial.crit.currentShare == nil and partial.crit.reference)  -- no own share without all four
+    ''')

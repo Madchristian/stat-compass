@@ -131,6 +131,7 @@ def test_report_is_identity_free_and_flags_thin_specs():
     for i in range(1, 4):
         responses |= character(i, 62)
     client = FakeClient(responses)
+    client.status_counts.update({200: 5, 404: 1, "transport": 2})  # mixed keys must not break the report
     verified = {62: bz.analyze_spec(client, rows, 62, target=3, max_candidates=3, max_level=90)}
     report = bz.build_report(season_id=17, periods=[1001], realms=[1], specs={62: {"name": "Arcane", "class": "Mage", "role": "DAMAGE"},
                              250: {"name": "Blood", "class": "Death Knight", "role": "TANK"}},
@@ -144,6 +145,7 @@ def test_report_is_identity_free_and_flags_thin_specs():
     assert arcane["enough"] and arcane["statRanges"]["crit"] == [11.0, 13.0] and arcane["scoreAtTarget"] == 97
     assert not blood["enough"] and blood["rankedCharacters"] == 0
     assert report["specsEnough"] == 1 and report["leaderboards"]["atLargestSize"] == 1
+    assert report["httpStatus"] == {"200": 5, "404": 1, "transport": 2}
 
 
 class Response(BytesIO):

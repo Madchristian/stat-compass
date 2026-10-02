@@ -654,7 +654,7 @@ def build_report(*, season_id, periods, realms, specs, scan_stats, ranking, fall
             "specsEnough": sum(r["enough"] for r in rows), "specsTotal": len(rows),
             "requests": client.requests, "cacheHits": client.cache_hits,
             "weeksFromState": scan_stats.get("weeksFromState", 0),
-            "httpStatus": {str(k): v for k, v in sorted(client.status_counts.items())},
+            "httpStatus": {str(k): v for k, v in sorted(client.status_counts.items(), key=lambda kv: str(kv[0]))},
             "specs": rows}
 
 

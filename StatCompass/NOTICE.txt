@@ -1,0 +1,30 @@
+Stat Compass contains original implementation code and no upstream target values,
+third-party libraries, or copied third-party artwork. It uses Blizzard client
+textures by path; those assets are not bundled.
+
+Research attribution: VaughanT31/recommendedstats at
+https://github.com/VaughanT31/recommendedstats/tree/ea1ddf34af3ef1091f0680c4c6b52191bc62f151
+was inspected. Its license is MIT. The following notice is retained for clarity
+of provenance; it does not grant rights to third-party data used by that project.
+
+MIT License
+
+Copyright (c) 2026 VaughanT31
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -1,0 +1,10 @@
+## Interface: 120100
+## Title: Stat Compass
+## Notes: Character equipment secondary stat comparison
+## SavedVariables: StatCompassDB
+## Version: 0.1.0
+Locales.lua
+Data.lua
+Core.lua
+UI.lua
+Controls.lua

@@ -58,7 +58,7 @@ def test_visible_target_expires_once_and_old_lifecycle_timer_cannot_render():
       local old=widgets.timers[1].fn
       now=1800001000
       old()
-      assert(StatCompass.status.text==StatCompass.Text("noData","enUS"))
+      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
       assert(#widgets.timers==1) -- no recurring timer
       PaperDollFrame:Hide()
       now=1800000000
@@ -70,7 +70,7 @@ def test_visible_target_expires_once_and_old_lifecycle_timer_cannot_render():
       stale()
       assert(StatCompass.status.text==shown)
       PaperDollFrame:Show()
-      assert(StatCompass.status.text==StatCompass.Text("noData","enUS"))
+      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
     ''')
 
 
@@ -90,7 +90,7 @@ def test_expiry_timer_is_replaced_on_context_data_refresh_and_unknown_clock():
       StatCompass.releaseData={}
       Fire("COMBAT_RATING_UPDATE"); RunCallbacks()
       oldDataTimer()
-      assert(StatCompass.status.text==StatCompass.Text("noData","enUS"))
+      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
     ''')
     lua = runtime_with_manifest(synthetic_manifest())
     run(lua, '''
@@ -100,7 +100,7 @@ def test_expiry_timer_is_replaced_on_context_data_refresh_and_unknown_clock():
       local expiry=widgets.timers[1].fn
       clock=nil
       expiry()
-      assert(StatCompass.status.text==StatCompass.Text("noData","enUS"))
+      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
     ''')
 
 
@@ -299,7 +299,7 @@ def test_expiry_invalidates_target_when_spec_unreadable_or_changed(spec_result):
       StatCompass.Render=function(snapshot) renders=renders+1; original(snapshot) end
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       assert(renders==1 and #widgets.timers==1)
-      assert(StatCompass.rows[1].target.text:find("900")) -- cohort rating mean from Core
+      assert(StatCompass.rows[1].target.text:find("32.1%%")) -- cohort rating mean from Core
       StatCompass.metadataHit.scripts.OnEnter(StatCompass.metadataHit)
       local expiry=widgets.timers[1].fn
       C_SpecializationInfo.GetSpecializationInfo=function() return SPEC_RESULT end
@@ -307,10 +307,10 @@ def test_expiry_invalidates_target_when_spec_unreadable_or_changed(spec_result):
       expiry()
       assert(renders==2, "expiry must refresh even without a readable matching spec")
       assert(StatCompass.expiryScheduled==nil and StatCompass.expiryAt==nil)
-      assert(StatCompass.status.text==StatCompass.Text("noData","enUS"))
+      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
       assert(StatCompass.rows[1].target.text==StatCompass.Text("unknown","enUS"))
       assert(not StatCompass.rows[1].markerMin.shown and not StatCompass.rows[1].markerMax.shown)
-      assert(GameTooltip.text==StatCompass.Text("referenceUnavailable","enUS"))
+      assert(GameTooltip.text:find(StatCompass.Text("shareReferenceUnavailable","enUS"),1,true))
       assert(#widgets.timers==1 and #widgets.callbacks==0)
       expiry() -- consumed callback cannot render twice
       assert(renders==2 and #widgets.timers==1 and #widgets.callbacks==0)
@@ -326,10 +326,10 @@ def test_extreme_scientific_target_text_fits_measured_column():
       Fire("PLAYER_LOGIN")
       StatCompass.rows[3].max.GetStringWidth=function(self) return #self.text*9 end
       CharacterFrame:Show(); PaperDollFrame:Show()
-      StatCompass.Render({ratingComparison={mastery={currentRating=1e308,axisMaxRating=1e308,axisVerified=true,axisProvenance="synthetic cap",sourceStatus="verified",reference={minRating=1e-308,maxRating=1e308}}}})
+      StatCompass.Render({shareComparison={mastery={currentShare=100,axisMaxShare=100,axisVerified=true,axisProvenance="synthetic cap",sourceStatus="verified",reference={minShare=1e-308,maxShare=100}}}})
       local target=StatCompass.rows[3].max
       assert(target:GetStringWidth()<=target.width)
-      assert(target.text:find("1.0e+308",1,true))
+      assert(target.text:find("100.0%",1,true))
       assert(not target.text:find("inf",1,true))
       assert(StatCompass.rows[3].min.text:find("1.0e-308",1,true))
       assert(StatCompass.rows[3].fill.width<=StatCompass.rows[3].track.width)

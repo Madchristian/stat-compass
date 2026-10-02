@@ -90,9 +90,9 @@ def test_panel_columns_spec_tooltip_skin_and_clamp():
       Fire("PLAYER_LOGIN")
       CharacterFrame:Show(); PaperDollFrame:Show()
       assert(StatCompass.spec.text:find("71"))
-      assert(StatCompass.headers.current.text=="Current")
-      assert(StatCompass.headers.target.text:find("Rating"))
-      assert(StatCompass.rows[3].min.text:find("800") and StatCompass.rows[3].max.text:find("800"))  -- cohort mastery rating
+      assert(StatCompass.headers.current.text=="Your share")
+      assert(StatCompass.headers.target.text:find("Secondary budget"))
+      assert(StatCompass.rows[3].min.text:find("28.6%%") and StatCompass.rows[3].max.text:find("28.6%%"))  -- cohort mastery rating
       assert(StatCompass.rows[3].tip.mean:find("Cohort average"))
       assert(StatCompass.panel.mouseEnabled==false)
       StatCompass.metadataHit.scripts.OnEnter(StatCompass.metadataHit)
@@ -125,7 +125,7 @@ def test_panel_columns_spec_tooltip_skin_and_clamp():
       StatCompass.buttons[2].scripts.OnClick(StatCompass.buttons[2])
       assert(StatCompassDB.mode=="mythic" and StatCompass.buttons[2].selected)
       RunCallbacks()
-      assert(StatCompass.status.text==StatCompass.Text("noData","enUS"))
+      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
       StatCompass.buttons[5].scripts.OnClick(StatCompass.buttons[5])
       assert(StatCompassDB.mode=="raid" and StatCompassDB.skin=="default")
     ''')
@@ -163,7 +163,7 @@ def test_de_locale_column_bounds_and_lazy_attach():
       GetMasteryEffect=function() return 999.9 end
       Fire("PLAYER_LOGIN")
       CharacterFrame:Show(); PaperDollFrame:Show()
-      assert(StatCompass.headers.current.text=="Aktuell")
+      assert(StatCompass.headers.current.text=="Dein Anteil")
       for i=1,4 do
         local row=StatCompass.rows[i]
         assert(row.label:GetStringWidth() <= row.label.width)
@@ -224,5 +224,5 @@ def test_secret_api_returns_and_all_relevant_events():
     locale = load_runtime('GetLocale=function() return {secret=true} end')
     run(locale, '''
       Fire("PLAYER_LOGIN")
-      assert(StatCompass.headers.current.text=="Current")
+      assert(StatCompass.headers.current.text=="Your share")
     ''')

@@ -37,7 +37,7 @@ def test_bar_geometry_repaints_without_stat_reads():
       GetHaste=function() reads=reads+1; return 6.8 end
       CharacterFrame:SetBounds(200,600,30,780)
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
-      StatCompass.Render({ratingComparison={haste={currentRating=68,axisMaxRating=100,axisVerified=true,axisProvenance="synthetic cap"}}})
+      StatCompass.Render({shareComparison={haste={currentShare=68,axisMaxShare=100,axisVerified=true,axisProvenance="synthetic scale",sourceStatus="verified"}}})
       local row=StatCompass.rows[2]
       local fraction=row.fill.width/row.barWidth
       local firstWidth=row.barWidth
@@ -63,9 +63,9 @@ def test_small_stat_has_useful_axis_and_zero_fallback():
       GetVersatilityBonus=function() return 0 end
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local haste=StatCompass.rows[2]
-      assert(haste.axis==800 and not haste.fill.shown)       -- 700 rating cohort, +10%, rounded to 50
+      assert(haste.axis==30 and not haste.fill.shown)       -- 700 rating cohort, +10%, rounded to 50
       local zero=StatCompass.rows[4]
-      assert(zero.axis==450 and not zero.markerCurrent.shown)
+      assert(zero.axis==20 and not zero.markerCurrent.shown)
     ''')
 
 
@@ -73,7 +73,7 @@ def test_coincident_ticks_have_separate_vertical_extent():
     lua = runtime_with_data()
     run(lua, '''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
-      StatCompass.Render({ratingComparison={haste={currentRating=50,axisMaxRating=100,axisVerified=true,axisProvenance="synthetic cap",sourceStatus="verified",reference={minRating=50,meanRating=50,maxRating=50}}}})
+      StatCompass.Render({shareComparison={haste={currentShare=50,axisMaxShare=100,axisVerified=true,axisProvenance="synthetic cap",sourceStatus="verified",reference={minShare=50,meanShare=50,maxShare=50}}}})
       local row=StatCompass.rows[2]
       assert(row.markerMin.point[4]==row.markerMax.point[4])
       assert(row.markerMin.point[1]==row.markerMax.point[1])

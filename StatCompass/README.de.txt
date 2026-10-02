@@ -11,12 +11,17 @@ Darstellung zurücksetzen (Schlachtzug/Mythic+ bleibt erhalten). Position und
 Sichtbarkeit bleiben nach /reload erhalten. Kein weiteres Funktionsfenster.
 Deutsch wird bei deDE automatisch verwendet; sonst erscheint Englisch.
 Das Fenster folgt der Höhe des Charakterfensters und zeigt vier Wertezeilen.
-Wertungsbalken benötigen eine ausdrücklich geprüfte Wertungsgrenze und
-Wertungsdaten. Ohne diese Schnittstelle bleiben Prozentwerte sichtbar,
-Balken jedoch verborgen. Geprüfte Vergleiche zeigen Minimum, Mittelwert
-und Maximum.
+Zahlen und Balken zeigen Anteile am Sekundärwert-Budget, keine Effektprozentwerte.
+Anteil an deinen Sekundärwerten. Die markierte Spanne zeigt, wo die mittlere
+Hälfte der Top-Spieler liegt. Minimum, Mittelwert und Maximum sind eigene Marker.
+Die Wert-Tooltips zeigen absolute Wertungspunkte. Der Mittelwert beschreibt die
+Stichprobe und ist kein persönliches Optimum.
+Ohne geprüften Vergleich sind alle Balken, Spannen, Marker und Leuchteffekte aus.
+Ein bekannter eigener Anteil wird unabhängig vom Vergleich gekennzeichnet.
+Ist einer der vier Rohwerte unlesbar, sind alle eigenen Anteile unbekannt.
+Achse und Quartile kommen vom Core und werden im UI nicht neu berechnet.
 
 WICHTIG: Dieses Paket enthält keine lizenzierten EU-Top-50-Daten. Aktuelle
-Werte werden angezeigt, Minimum und Maximum stehen auf Unbekannt. Erst ein
-späterer, nachweislich zulässiger Datensatz kann Vergleichswerte liefern.
-Dieses Paket gibt derzeit keine sinnvollen Stat-Empfehlungen.
+Anteile können unabhängig angezeigt werden; Vergleichswerte sind Unbekannt.
+Die Verteilung garantiert keinen ausgewogenen Build oder dein persönliches Optimum.
+Dieser Integrationskandidat wurde weder installiert noch im Spiel abgenommen.

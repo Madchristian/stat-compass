@@ -24,11 +24,13 @@ def test_current_core_populates_quartiles_and_ui_preserves_observed_axis():
       assert(item.axisProvenance:find("own rating",1,true))
       a.Render(snapshot)
       local r=a.rows[1]
-      assert(r.cachedRating.bounds.low==130 and r.cachedRating.bounds.high==380,"Core quartiles must reach UI")
-      assert(r.band.shown and r.axis==item.axisMaxRating)
-      assert(math.abs(r.fill.width/r.barWidth-800/900)<0.001)
+      local shares=snapshot.shareComparison.crit
+      assert(r.cachedShare.bounds.low==shares.reference.lowShare and r.cachedShare.bounds.high==shares.reference.highShare,"Core share quartiles must reach UI")
+      assert(r.band.shown and r.axis==shares.axisMaxShare)
+      assert(math.abs(r.fill.width/r.barWidth-shares.currentShare/shares.axisMaxShare)<0.001)
       r.bandHit.scripts.OnEnter(r.bandHit)
-      assert(GameTooltip.text=="Middle 50 % of top players: 130 – 380")
+      assert(GameTooltip.text:find("Middle 50 % of top players:",1,true))
+      assert(r.tip.min:find("10 rating",1,true) and r.tip.mean:find("255 rating",1,true))
     ''')
 
 

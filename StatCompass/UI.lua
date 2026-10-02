@@ -76,36 +76,38 @@ end
 local function validCount(value)
   return usableNumber(value) and value>=1 and value<=1000000 and value==math.floor(value) and value or nil
 end
--- Only this explicit rating payload may drive a bar. Core's percent snapshot is display-only.
-local function ratingFor(snapshot,key)
+-- Share and absolute-rating payloads have separate units. Only shares drive bars.
+local function comparisonFor(snapshot,key,shares)
   -- Raw reads prevent hostile container metatables from manufacturing values.
-  local all=publicTable(rawget(snapshot,"ratingComparison"))
+  local all=publicTable(rawget(snapshot,shares and "shareComparison" or "ratingComparison"))
   local item=all and publicTable(rawget(all,key))
   if not item then return nil end
-  local axis=rawget(item,"axisMaxRating")
+  local axis=rawget(item,shares and "axisMaxShare" or "axisMaxRating")
   axis=usableNumber(axis) and axis>0 and axis or nil
   local provenance=rawget(item,"axisProvenance")
   provenance=A.IsPublic(provenance) and type(provenance)=="string" and provenance~="" and provenance or nil
   local verified=rawget(item,"axisVerified")
   if not A.IsPublic(verified) or verified~=true or not provenance then axis=nil end
-  local current=rawget(item,"currentRating")
-  current=usableNumber(current) and current>=0 and current or nil
+  local current=rawget(item,shares and "currentShare" or "currentRating")
+  current=usableNumber(current) and current>=0 and (not shares or current<=100) and current or nil
   local ref=publicTable(rawget(item,"reference"))
   local bounds
   local status=rawget(item,"sourceStatus")
   status=A.IsPublic(status) and type(status)=="string" and status or nil
+  if status~="verified" then axis=nil end
+  if current and axis and current>axis then current=nil end
   if ref and axis and status=="verified" then
     bounds={}
     for _,field in ipairs({{"min","minRating"},{"mean","meanRating"},{"max","maxRating"}}) do
-      local value=rawget(ref,field[2])
-      if usableNumber(value) and value>=0 and (not axis or value<=axis) then bounds[field[1]]=value end
+      local value=rawget(ref,shares and (field[1] .. "Share") or field[2])
+      if usableNumber(value) and value>=0 and value<=axis and (not shares or value<=100) then bounds[field[1]]=value end
     end
     if bounds.min and bounds.max and bounds.min>bounds.max then bounds={} end
     if bounds.mean and bounds.min and bounds.mean<bounds.min then bounds.mean=nil end
     if bounds.mean and bounds.max and bounds.mean>bounds.max then bounds.mean=nil end
     -- Provider-owned nearest-rank quartiles; never derive them from extrema.
-    local low,high=rawget(ref,"lowRating"),rawget(ref,"highRating")
-    if usableNumber(low) and usableNumber(high) and low>=0 and high<=axis and low<=high then
+    local low,high=rawget(ref,shares and "lowShare" or "lowRating"),rawget(ref,shares and "highShare" or "highRating")
+    if usableNumber(low) and usableNumber(high) and low>=0 and high<=axis and low<=high and (not shares or high<=100) then
       bounds.low,bounds.high=low,high
     end
   end
@@ -189,7 +191,7 @@ local function marker(row, texture, value, axis, outline, hit)
   end
 end
 local function redrawBar(row)
-  local item=row.cachedRating
+  local item=row.cachedShare
   local current,bounds,axis=item and item.current,item and item.bounds,item and item.axis
   row.axis = axis
   if axis then row.track:Show() else row.track:Hide() end
@@ -200,7 +202,7 @@ local function redrawBar(row)
     local x1=row.markerInset+span*barPosition(bounds.low,axis)
     local x2=row.markerInset+span*barPosition(bounds.high,axis)
     row.bandWidth=x2-x1
-    row.bandTip=string.format(T("middle50"),ratingNumber(bounds.low),ratingNumber(bounds.high))
+    row.bandTip=string.format(T("middle50"),number(bounds.low),number(bounds.high))
     if x2>x1 then
       row.band:ClearAllPoints()
       row.band:SetPoint("LEFT",row.track,"LEFT",x1,0)
@@ -246,6 +248,9 @@ local function redrawBar(row)
       row.glow:Show()
     else row.glow:Hide() end
   else row.glow:Hide() end
+  for _,hit in pairs(row.markerHit) do
+    if not hit:IsShown() and A.TooltipIsOwned(hit) then leaveTooltip(hit) end
+  end
   local color=row.palette
   if not axis or not current or current>axis or not bounds or not bounds.min or not bounds.max or not bounds.mean
       or current<bounds.min or current>bounds.max then color=NEUTRAL
@@ -258,7 +263,7 @@ local function redrawBar(row)
       0.14+(color[2]-0.14)*strength,
       0.16+(color[3]-0.16)*strength}
   end
-  paint(row.fill,FLAT,color[1],color[2],color[3],row.bandTip and 0.65 or 1)
+  paint(row.fill,FLAT,color[1],color[2],color[3],row.bandTip and 0.35 or 1)
 end
 local specTextColor
 local function colorSpecialization()
@@ -310,9 +315,9 @@ local function dateText(epoch)
 end
 local function meanLabel(row, bounds)
   local mean=bounds and bounds.mean
-  row.target:SetText(mean and (T("mean") .. " " .. ratingNumber(mean)) or T("unknown"))
+  row.target:SetText(mean and (T("mean") .. " " .. number(mean)) or T("unknown"))
   if mean and row.target:GetStringWidth()>row.target:GetWidth() then
-    row.target:SetText(T("meanShort") .. " " .. ratingNumber(mean))
+    row.target:SetText(T("meanShort") .. " " .. number(mean))
   end
 end
 local fitTypography
@@ -328,40 +333,45 @@ function A.Render(snapshot)
   end
   local firstReference
   for _,key in ipairs(A.statOrder) do
-    local ref=ratingFor(snapshot,key)
-    if ref and ref.n and ref.status=="verified" then firstReference=ref; break end
+    local ref=comparisonFor(snapshot,key,true)
+    if ref and ref.axis and ref.bounds and ref.n and ref.status=="verified" then firstReference=ref; break end
   end
-  A.status:SetText(firstReference and T("referenceAvailable") or T("noData"))
-  A.metadataText = target and (T("sample") .. ": " .. ratingNumber(firstReference and firstReference.n) .. "\n" .. T("observedAt") .. ": " .. (usableNumber(target.observedAt) and dateText(target.observedAt) or T("unknown")) .. "\n" .. T("source") .. ": " .. displayText(target.sourceURL) .. "\n" .. T("collectedAt") .. ": " .. (usableNumber(target.collectedAt) and dateText(target.collectedAt) or T("unknown")) .. "  |  " .. T("expiresAt") .. ": " .. (usableNumber(target.expiresAt) and dateText(target.expiresAt) or T("unknown")) .. "\n" .. T("selected") .. ": " .. ratingNumber(target.selectedCount) .. "  |  " .. T("valid") .. ": " .. ratingNumber(target.validCount) .. "\n" .. displayText(target.season) .. " | " .. displayText(target.rankingMetric) .. " | " .. displayText(target.difficulty) .. " | " .. displayText(target.partition)) or T("referenceUnavailable")
+  A.status:SetText(firstReference and T("shareReferenceAvailable") or T("shareNoData"))
+  A.metadataText = target and (T("sample") .. ": " .. ratingNumber(firstReference and firstReference.n) .. "\n" .. T("observedAt") .. ": " .. (usableNumber(target.observedAt) and dateText(target.observedAt) or T("unknown")) .. "\n" .. T("source") .. ": " .. displayText(target.sourceURL) .. "\n" .. T("collectedAt") .. ": " .. (usableNumber(target.collectedAt) and dateText(target.collectedAt) or T("unknown")) .. "  |  " .. T("expiresAt") .. ": " .. (usableNumber(target.expiresAt) and dateText(target.expiresAt) or T("unknown")) .. "\n" .. T("selected") .. ": " .. ratingNumber(target.selectedCount) .. "  |  " .. T("valid") .. ": " .. ratingNumber(target.validCount) .. "\n" .. displayText(target.season) .. " | " .. displayText(target.rankingMetric) .. " | " .. displayText(target.difficulty) .. " | " .. displayText(target.partition)) or T("shareReferenceUnavailable")
+  A.metadataText=T("shareHelp") .. "\n" .. T("shareDescriptive") .. "\n" .. A.metadataText
   for i,key in ipairs(A.statOrder) do
     local row = A.rows[i]
-    local current = publicTable(snapshot.current) and snapshot.current[key]
-    current=usableNumber(current) and current or nil
-    local item=ratingFor(snapshot,key)
+    local item=comparisonFor(snapshot,key,true)
     local bounds=item and item.bounds
-    local rating=item and item.current
+    local share=item and item.current
     local axis=item and item.axis
-    row.current:SetText(rating and (ratingNumber(rating) .. " " .. T("ratingUnit")) or number(current))
-    row.min:SetText(bounds and bounds.min and (T("min") .. " " .. ratingNumber(bounds.min)) or T("unknown"))
-    row.max:SetText(bounds and bounds.max and (T("max") .. " " .. ratingNumber(bounds.max)) or T("unknown"))
+    local absolute=comparisonFor(snapshot,key,false)
+    -- Both payloads come from the same snapshot/spec; never retain old reference ratings.
+    local matching=axis and absolute and absolute.axis and item.n and item.n==absolute.n
+    local rating=absolute and absolute.current
+    local ratingBounds=matching and absolute.bounds
+    row.current:SetText(share and (string.format("%.0f%%",share)) or T("unknown"))
+    row.min:SetText(bounds and bounds.min and (T("min") .. " " .. number(bounds.min)) or T("unknown"))
+    row.max:SetText(bounds and bounds.max and (T("max") .. " " .. number(bounds.max)) or T("unknown"))
     meanLabel(row,bounds)
-    row.axisStatus:SetText(axis and "" or T("axisUnavailableShort"))
+    row.axisStatus:SetText(axis and "" or T("shareAxisUnavailable"))
     if axis then row.axisStatus:Hide() else row.axisStatus:Show() end
     row.tip={
-      current=T("ownRating") .. ": " .. ratingNumber(rating) .. " " .. T("ratingUnit") .. "\n" .. T("ownPercent") .. ": " .. number(current),
-      min=T("observedLower") .. ": " .. ratingNumber(bounds and bounds.min) .. " " .. T("ratingUnit"),
-      mean=T("cohortAverage") .. ": " .. ratingNumber(bounds and bounds.mean) .. " " .. T("ratingUnit"),
-      max=T("observedUpper") .. ": " .. ratingNumber(bounds and bounds.max) .. " " .. T("ratingUnit"),
+      current=T(axis and "ownBudgetShare" or "independentBudgetShare") .. ": " .. number(share) .. "\n" .. T("ownRating") .. ": " .. ratingNumber(rating) .. " " .. T("ratingUnit"),
+      min=T("observedLower") .. ": " .. ratingNumber(ratingBounds and ratingBounds.min) .. " " .. T("ratingUnit"),
+      mean=T("cohortAverage") .. ": " .. ratingNumber(ratingBounds and ratingBounds.mean) .. " " .. T("ratingUnit"),
+      max=T("observedUpper") .. ": " .. ratingNumber(ratingBounds and ratingBounds.max) .. " " .. T("ratingUnit"),
     }
-    if rating and bounds and bounds.mean then
-      row.tip.mean=row.tip.mean .. "\n" .. T("meanDifference") .. ": " .. string.format("%+.0f",rating-bounds.mean) .. " " .. T("ratingUnit")
+    if rating and ratingBounds and ratingBounds.mean then
+      row.tip.mean=row.tip.mean .. "\n" .. T("meanDifference") .. ": " .. string.format("%+.0f",rating-ratingBounds.mean) .. " " .. T("ratingUnit")
     end
+    row.tip.current=row.tip.current .. "\n" .. T("shareHelp")
     row.glowTip=T("glowCloseness")
-    if rating and bounds and bounds.min and bounds.max and bounds.mean and bounds.max>bounds.min
-        and math.abs(rating-bounds.mean)<math.max(bounds.mean-bounds.min,bounds.max-bounds.mean) then
+    if share and bounds and bounds.min and bounds.max and bounds.mean and bounds.max>bounds.min
+        and math.abs(share-bounds.mean)<math.max(bounds.mean-bounds.min,bounds.max-bounds.mean) then
       row.tip.mean=row.tip.mean .. "\n" .. row.glowTip
     end
-    row.cachedRating, row.hasCache = item, true
+    row.cachedShare, row.hasCache = item, true
     redrawBar(row)
   end
   fitTypography()
@@ -662,7 +672,7 @@ function A.Layout(width, height)
     local column=(inner-12)/3
     place(row.min, inset, y-minOffset, column)
     place(row.target, inset+column+6, y-minOffset, column)
-    if row.hasCache then meanLabel(row,row.cachedRating and row.cachedRating.bounds) end
+    if row.hasCache then meanLabel(row,row.cachedShare and row.cachedShare.bounds) end
     place(row.max, inset+2*(column+6), y-minOffset, column)
     place(row.axisStatus, inset+7, y-trackOffset-1, inner-14)
     for role,font in pairs({current=row.current,min=row.min,mean=row.target,max=row.max}) do
@@ -722,8 +732,8 @@ local function createPanel()
   A.spec = label(panel, 16, -52, 436, T("noSpec"), true)
   A.buttons[1] = button(panel, 16, -95, 213, T("raid"), function() A.SetMode("raid") end)
   A.buttons[2] = button(panel, 239, -95, 213, T("mythic"), function() A.SetMode("mythic") end)
-  A.headers.current = label(panel, 16, -149, 100, T("current"))
-  A.headers.target = label(panel, 128, -149, 324, T("observed"))
+  A.headers.current = label(panel, 16, -149, 100, T("shareCurrent"))
+  A.headers.target = label(panel, 128, -149, 324, T("shareHeading"))
   for i,key in ipairs(A.statOrder) do
     local y = -181-(i-1)*103
     local row = {
@@ -732,7 +742,7 @@ local function createPanel()
       min = label(panel, 16, y-61, 210, T("unknown")),
       max = label(panel, 242, y-61, 210, T("unknown")),
       target = label(panel, 16, y-61, 436, T("unknown")),
-      axisStatus = label(panel, 23, y-30, 422, T("axisUnavailableShort")),
+      axisStatus = label(panel, 23, y-30, 422, T("shareAxisUnavailable")),
       track = texture(panel, "ARTWORK", 430, 20),
       band = texture(panel, "ARTWORK", 1, 20, 1),
       bandCue = texture(panel, "ARTWORK", 1, 20, 1),
@@ -768,7 +778,7 @@ local function createPanel()
     row.hoverFrame:EnableMouse(false)
     A.rows[i] = row
   end
-  A.status = label(panel, 16, -642, 436, T("noData"))
+  A.status = label(panel, 16, -642, 436, T("shareNoData"))
   A.metadataHit=tooltipHit(panel,function() return A.metadataText end)
   A.buttons[3] = button(panel, 16, -691, 138, T("default"), function() A.SetSkin("default") end)
   A.buttons[4] = button(panel, 165, -691, 138, T("flat"), function() A.SetSkin("flat") end)

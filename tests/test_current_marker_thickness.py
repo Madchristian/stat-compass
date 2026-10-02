@@ -26,11 +26,11 @@ def test_current_thickness_without_vertical_reflow(skin, physical_height):
           local headingY=r.label.point[5]
           local trackY=r.track.point[5]
           local labelY=r.min.point[5]
-          for _,value in ipairs({{0,500,1000}}) do
-            local item={{currentRating=value,axisMaxRating=1000,axisVerified=true,
+          for _,value in ipairs({{0,50,100}}) do
+            local item={{currentShare=value,axisMaxShare=100,axisVerified=true,
               axisProvenance="scale",sourceStatus="verified",
-              reference={{minRating=value,meanRating=value,maxRating=value}}}}
-            a.Render({{ratingComparison={{crit=item}}}})
+              reference={{minShare=value,meanShare=value,maxShare=value}}}}
+            a.Render({{shareComparison={{crit=item}}}})
             near(r.markerCurrent.width*physical,5)
             near(r.markerMean.width*physical,3)
             near(r.markerMin.width*physical,2)
@@ -44,7 +44,7 @@ def test_current_thickness_without_vertical_reflow(skin, physical_height):
               near((outline.height-r.track.height)*physical,10)
               near(r.markerHit[role].height,mark.height)
               near(r.markerHit[role].width*physical,8)
-              near(mark.point[4],r.markerInset+(r.barWidth-2*r.markerInset)*value/1000)
+              near(mark.point[4],r.markerInset+(r.barWidth-2*r.markerInset)*value/100)
               near(mark.point[5],0)
               near(outline.point[4],mark.point[4]); near(outline.point[5],0)
               assert(mark.color[1]==1 and mark.color[2]==1 and mark.color[3]==1 and mark.color[4]==1)

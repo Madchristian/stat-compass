@@ -8,10 +8,10 @@ def test_white_through_markers_and_static_glow():
     run(lua, '''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local a=StatCompass
-      local item={currentRating=500,axisMaxRating=1000,axisVerified=true,
+      local item={currentShare=50,axisMaxShare=100,axisVerified=true,
         axisProvenance="observed scale",sourceStatus="verified",sampleCount=27,
-        reference={minRating=400,meanRating=500,maxRating=600}}
-      a.Render({ratingComparison={crit=item}})
+        reference={minShare=40,meanShare=50,maxShare=60}}
+      a.Render({shareComparison={crit=item}})
       local r=a.rows[1]
       for _,m in ipairs({r.markerMin,r.markerMean,r.markerMax}) do
         assert(m.shown and m.point[1]=="CENTER" and m.point[3]=="LEFT")
@@ -22,12 +22,12 @@ def test_white_through_markers_and_static_glow():
       assert(r.markerMin.point[4]<r.markerMean.point[4] and r.markerMean.point[4]<r.markerMax.point[4])
       assert(r.glow.shown and r.glow.color[4]>0)
       local near=r.glow.color[4]
-      item.currentRating=550; a.Render({ratingComparison={crit=item}})
+      item.currentShare=55; a.Render({shareComparison={crit=item}})
       assert(r.glow.color[4]<near)
-      item.currentRating=450; a.Render({ratingComparison={crit=item}})
+      item.currentShare=45; a.Render({shareComparison={crit=item}})
       assert(math.abs(r.glow.color[4]-(near*0.5))<0.01)
-      item.reference={minRating=500,meanRating=500,maxRating=500}
-      item.currentRating=500; a.Render({ratingComparison={crit=item}})
+      item.reference={minShare=50,meanShare=50,maxShare=50}
+      item.currentShare=50; a.Render({shareComparison={crit=item}})
       assert(not r.glow.shown)
     ''')
 
@@ -37,9 +37,9 @@ def test_small_independent_value_targets_and_metadata():
     run(lua, '''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local a=StatCompass
-      a.Render({current={crit=21},ratingComparison={crit={currentRating=500,
-        axisMaxRating=1000,axisVerified=true,axisProvenance="scale",sourceStatus="verified",
-        reference={minRating=400,meanRating=500,maxRating=600},sampleCount=27}}})
+      a.Render({current={crit=21},shareComparison={crit={currentShare=50,
+        axisMaxShare=100,axisVerified=true,axisProvenance="scale",sourceStatus="verified",
+        reference={minShare=40,meanShare=50,maxShare=60},sampleCount=27}}})
       local r=a.rows[1]
       assert(not a.panel.scripts.OnEnter and not r.hoverFrame.mouseEnabled)
       for _,role in ipairs({"current","min","mean","max"}) do
@@ -49,9 +49,9 @@ def test_small_independent_value_targets_and_metadata():
         assert(GameTooltip.shown and GameTooltip.text==r.tip[role])
         h.scripts.OnLeave(h)
       end
-      assert(r.tip.current:find("500") and r.tip.current:find("21.0%%"))
-      assert(r.tip.mean:find("+0") and not r.tip.mean:find("Sample"))
-      assert(r.tip.max:find("600") and not r.tip.max:find("cap"))
+      assert(r.tip.current:find("50.0%%") and not r.tip.current:find("21.0%%"))
+      assert(r.tip.mean:find("Unknown") and not r.tip.mean:find("Sample"))
+      assert(r.tip.max:find("Unknown") and not r.tip.max:find("cap"))
       assert(a.metadataHit and a.metadataHit.mouseEnabled)
     ''')
 
@@ -61,9 +61,9 @@ def test_actual_pointer_targets_and_physical_marker_matrix():
     run(lua, '''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local a=StatCompass
-      a.Render({ratingComparison={crit={currentRating=500,axisMaxRating=1000,
+      a.Render({shareComparison={crit={currentShare=50,axisMaxShare=100,
         axisVerified=true,axisProvenance="scale",sourceStatus="verified",
-        reference={minRating=400,meanRating=500,maxRating=600}}}})
+        reference={minShare=40,meanShare=50,maxShare=60}}}})
       for _,role in ipairs({"current","min","mean","max"}) do
         local h=a.rows[1].hit[role]
         local s=h:GetEffectiveScale()
@@ -96,11 +96,11 @@ def test_yellow_outline_survives_skin_roundtrip_and_missing_mean_has_no_glow():
     run(lua, '''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local a=StatCompass
-      local item={currentRating=500,axisMaxRating=1000,axisVerified=true,
+      local item={currentShare=50,axisMaxShare=100,axisVerified=true,
         axisProvenance="scale",sourceStatus="verified",
-        reference={minRating=400,meanRating=500,maxRating=600}}
+        reference={minShare=40,meanShare=50,maxShare=60}}
       for _,skin in ipairs({"default","flat","default"}) do
-        a.SetSkin(skin); a.Render({ratingComparison={mastery=item}})
+        a.SetSkin(skin); a.Render({shareComparison={mastery=item}})
         local r=a.rows[3]
         assert(r.fill.color[1]>r.fill.color[3])
         for _,role in ipairs({"min","mean","max"}) do
@@ -109,7 +109,7 @@ def test_yellow_outline_survives_skin_roundtrip_and_missing_mean_has_no_glow():
           assert(r.outline[role].color[1]<0.05 and r.outline[role].width>mark.width)
         end
       end
-      item.reference={minRating=400,maxRating=600}
-      a.Render({ratingComparison={mastery=item}})
+      item.reference={minShare=40,maxShare=60}
+      a.Render({shareComparison={mastery=item}})
       assert(not a.rows[3].glow.shown and not a.rows[3].markerMean.shown)
     ''')

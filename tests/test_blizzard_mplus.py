@@ -400,5 +400,28 @@ def test_playable_specs_lists_official_hero_trees():
     client = FakeClient({"/data/wow/playable-specialization/index": {"character_specializations": [{"id": 62, "name": "Arcane"}]},
                          "/data/wow/playable-specialization/62": {"playable_class": {"name": "Mage"}, "role": {"type": "DAMAGE"},
                                                                   "hero_talent_trees": [{"id": 40, "name": "Sunfury"},
-                                                                                        {"id": 39, "name": "Spellslinger"}]}})
+                                                                                        {"id": 39, "name": "Spellslinger"},
+                                                                                        {"id": 90, "name": "Red [DNT]"}]}})
     assert bz.playable_specs(client)[62]["heroTrees"] == [(39, "Spellslinger"), (40, "Sunfury")]
+
+
+def test_intervals_are_cached_until_profile_or_ceiling_changes():
+    cert, client = certifier_fixture({1: season_profile(1, [(1, 400.0, 62, True), (2, 395.0, 62, True)])},
+                                     floors=[(100, 2, 500, 395.0)])
+    calls = []
+    original = cert._interval
+    cert._interval = lambda *a: calls.append(a[:2]) or original(*a)
+    first = cert.interval(62, 1)
+    assert cert.interval(62, 1) == first and len(calls) == 1      # cached
+    cert.untimed_ceiling = 500.0
+    assert cert.interval(62, 1) != first and len(calls) == 2      # ceiling moved: recomputed
+    cert.profile(1)
+    assert cert.interval(62, 1) == (795.0, 795.0) and len(calls) == 3  # profile arrived: exact
+
+
+def test_hero_runs_respect_their_own_profile_budget():
+    profiles = {c: season_profile(c, [(1, 400.0, 62, True), (2, 390.0, 62, True)]) for c in (1, 2, 3)}
+    cert, client = certifier_fixture(profiles, floors=[(100, 1, 500, 450.0), (100, 2, 500, 450.0)])
+    cert.run(62, target=2, max_profiles=1)
+    fetched = [p for p, _ in client.calls if "mythic-keystone-profile" in p]
+    assert len(fetched) == 1

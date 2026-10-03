@@ -212,8 +212,9 @@ def playable_specs(client):
                           "class": (detail.get("playable_class") or {}).get("name"),
                           "role": (detail.get("role") or {}).get("type"),
                           # the official hero talent trees of this spec, including ones nobody at the top plays
+                          # "[DNT]" (do not translate) marks Blizzard's internal placeholder trees
                           "heroTrees": sorted((t["id"], t.get("name")) for t in detail.get("hero_talent_trees", [])
-                                              if _id((t or {}).get("id")))}
+                                              if _id((t or {}).get("id")) and "[DNT]" not in str(t.get("name")))}
     if not specs:
         raise BlizzardError("empty specialization index")
     return specs
@@ -392,6 +393,8 @@ class Certifier:
         self.realm_to_cr, self.season_id, self.max_level, self.ilvl_gap = realm_to_cr, season_id, max_level, ilvl_gap
         self.max_profiles, self.workers, self.untimed_ceiling = max_profiles, workers, 0.0
         self.lock, self.profiles, self.checks, self.heroes, self.hero_times = threading.Lock(), {}, {}, {}, {}
+        # interval results stay valid until the character's profile arrives or the untimed ceiling moves
+        self.intervals = {}
 
     def hero_of(self, char_id):
         """(active spec ID, hero tree ID, hero tree name) from /specializations; one request, cached."""
@@ -416,8 +419,17 @@ class Certifier:
         return self.profiles[char_id]
 
     def interval(self, spec_id, char_id):
-        known = self.ranker.best.get((spec_id, char_id), {})
         payload = self.profiles.get(char_id)
+        state = (payload is not None, self.untimed_ceiling)
+        hit = self.intervals.get((spec_id, char_id))
+        if hit is not None and hit[0] == state:
+            return hit[1]
+        result = self._interval(spec_id, char_id, payload)
+        self.intervals[(spec_id, char_id)] = (state, result)
+        return result
+
+    def _interval(self, spec_id, char_id, payload):
+        known = self.ranker.best.get((spec_id, char_id), {})
         if payload is not None:
             in_spec, any_spec, _ = season_profile_bounds(payload, char_id, spec_id)
             lower = {d: max(known.get(d, 0.0), in_spec.get(d, 0.0)) for d in self.dungeons}
@@ -460,10 +472,12 @@ class Certifier:
                 return "heroTree"
         return self.check(char_id, spec_id)
 
-    def run(self, spec_id, *, target, hero_id=None, minimum=None, max_walk=None):
+    def run(self, spec_id, *, target, hero_id=None, minimum=None, max_walk=None, max_profiles=None):
         """Certified top `target` of a spec, or of one hero talent tree within it.
 
-        A hero cohort walks at most `max_walk` ranked players and is dropped below `minimum`."""
+        A hero cohort walks at most `max_walk` ranked players and is dropped below `minimum`.
+        `max_profiles` caps the season profiles this run may fetch (default: the certifier's cap)."""
+        budget = max_profiles if max_profiles is not None else self.max_profiles
         chars = [c for (s, c) in self.ranker.best if s == spec_id]
         excluded, profiles_used = {}, 0
         while True:
@@ -478,9 +492,9 @@ class Certifier:
             # selected players get their profile too, so their scores (and order) become exact
             unresolved = sorted((c for c in chars if c not in self.profiles and (c in chosen_set or (
                                  c not in excluded and scored[c][1] > tau))), key=lambda c: (-scored[c][1], c))
-            if not unresolved or profiles_used >= self.max_profiles:
+            if not unresolved or profiles_used >= budget:
                 break
-            batch = unresolved[:self.max_profiles - profiles_used]
+            batch = unresolved[:budget - profiles_used]
             with ThreadPoolExecutor(self.workers) as pool:
                 list(pool.map(self.profile, batch))
             profiles_used += len(batch)
@@ -749,6 +763,8 @@ def main():
     parser.add_argument("--hero-walk-deep", type=int, default=500,
                         help="second, deeper walk for hero trees that found too few players in the first")
     parser.add_argument("--max-profiles", type=int, default=600, help="season profiles fetched per spec to tighten bounds")
+    parser.add_argument("--hero-max-profiles", type=int, default=100,
+                        help="season profiles fetched per hero talent cohort; spec cohorts keep --max-profiles")
     parser.add_argument("--observations", type=Path, help="identity-free per-spec observations for the Data.lua generator")
     parser.add_argument("--ilvl-gap", type=int, default=10, help="drop observations below cohort median item level minus this (0 disables)")
     parser.add_argument("--periods", type=int, default=0, help="only the last N season periods (0 = all)")
@@ -840,7 +856,7 @@ def main():
     heroes = defaultdict(dict)
     with ThreadPoolExecutor(4) as pool:
         futures = {key: pool.submit(certifier.run, key[0], target=args.target, hero_id=key[1], minimum=args.minimum,
-                                    max_walk=args.hero_walk) for key in hero_jobs}
+                                    max_walk=args.hero_walk, max_profiles=args.hero_max_profiles) for key in hero_jobs}
         for (s, hero_id), f in futures.items():
             rows, _, cert = f.result()
             heroes[s][hero_id] = (hero_jobs[(s, hero_id)], rows, cert)
@@ -850,7 +866,7 @@ def main():
     if thin and args.hero_walk_deep > args.hero_walk:
         with ThreadPoolExecutor(4) as pool:
             futures = {key: pool.submit(certifier.run, key[0], target=args.target, hero_id=key[1], minimum=args.minimum,
-                                        max_walk=args.hero_walk_deep) for key in thin}
+                                        max_walk=args.hero_walk_deep, max_profiles=args.hero_max_profiles) for key in thin}
             for (s, hero_id), f in futures.items():
                 rows, _, cert = f.result()
                 cert["deepWalk"] = True

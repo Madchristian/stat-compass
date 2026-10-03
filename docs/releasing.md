@@ -55,7 +55,7 @@ Unter Actions → `Release` → `Run workflow` läuft alles wie bei einem echten
 Das ist einmalig und läuft wie bei den anderen Addons:
 
 1. Bei CurseForge und Wago jeweils ein Projekt anlegen und das GitHub-Repository bzw. den Webhook verbinden.
-2. Die Projekt-IDs in `StatCompass/StatCompass.toc` eintragen: `## X-Curse-Project-ID: <id>` und `## X-Wago-ID: <id>`.
+2. Die Projekt-IDs stehen in `StatCompass/StatCompass.toc`: CurseForge `1724016`, Wago `YK9xO36L`.
 3. Einen Probelauf starten, danach den ersten Tag setzen.
 
 Das Repository ist privat. Ob ein Host Releases aus einem privaten Repository abholen kann, hängt von der Freigabe ab, die du ihm beim Verbinden gibst.

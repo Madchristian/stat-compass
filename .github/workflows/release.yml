@@ -2,7 +2,8 @@ name: Release
 
 # Only tags v* create a release (CalVer, e.g. v2026.10.3). Pushes to main release nothing.
 # workflow_dispatch is a dry run: the packager runs with -d (no upload) and the ZIP is kept as an artifact.
-# CurseForge and Wago import the finished GitHub release through their webhooks; no API tokens here.
+# Wago imports the finished GitHub release through its webhook. CurseForge gets the same package by API
+# upload (CF_API_KEY): its own repository packager would build from the repo, where Data.lua is empty.
 on:
   push:
     tags:
@@ -98,8 +99,10 @@ jobs:
         with:
           args: ${{ env.DRY_RUN == 'true' && '-d' || '' }}
         env:
-          # Provided by the runner. The packager only creates the GitHub release.
+          # Provided by the runner: creates the GitHub release, which Wago imports by webhook.
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+          # Uploads the same package to CurseForge (X-Curse-Project-ID in the TOC); skipped while unset.
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
 
       - name: Verify package
         run: |
@@ -143,6 +146,6 @@ jobs:
             if [ "$DRY_RUN" = "true" ]; then
               echo "- Dry run: nothing uploaded; the package is attached as artifact \`stat-compass-dry-run\`."
             else
-              echo "- GitHub release created; CurseForge and Wago import it through their webhooks."
+              echo "- GitHub release created (Wago imports it by webhook); CurseForge upload by API when CF_API_KEY is set."
             fi
           } >> "$GITHUB_STEP_SUMMARY"

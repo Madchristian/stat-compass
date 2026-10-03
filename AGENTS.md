@@ -80,7 +80,7 @@ Berührt eine Aufgabe die Dateien einer anderen Rolle, setzt du sie nicht selbst
 
 ## Releases
 
-- Releases entstehen nur über Tags `v<CalVer>` (z. B. `v2026.10.3`) und `.github/workflows/release.yml`. Der BigWigs-Packager legt das GitHub-Release an, CurseForge und Wago importieren es per Webhook. Ablauf und Prüfungen: `docs/releasing.md`.
+- Releases entstehen nur über Tags `v<CalVer>` (z. B. `v2026.10.3`) und `.github/workflows/release.yml`. Der BigWigs-Packager legt das GitHub-Release an (Wago importiert es per Webhook) und lädt dasselbe Paket per `CF_API_KEY` zu CurseForge hoch. Einen CurseForge-Webhook auf `push` gibt es bewusst nicht, weil `Data.lua` im Repo leer ist. Ablauf und Prüfungen: `docs/releasing.md`.
 - Jede Version braucht ein Changelog-Paar `changelog/CHANGELOG-<version>-en.md` und `-de.md`. `CHANGELOG.md` erzeugt nur `tools/generate_changelog.py`.
 - Ein Release packt die `Data.lua` des letzten erfolgreichen Wochenlaufs. `StatCompass/Data.lua` im Repo bleibt leer.
 - Tags setzt ein Agent nur auf ausdrücklichen Auftrag des Nutzers.

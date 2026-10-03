@@ -1,33 +1,78 @@
 # Stat Compass
 
+![Stat Compass](assets/icon/stat-compass-128.png)
+
 ## English
 
-Stat Compass is a small World of Warcraft Retail 12.1.0 addon attached to the Character **equipment** page. It shows Crit, Haste, Mastery, and Versatility as shares of the secondary-stat rating budget in Blizzard's Character-window order. Raid and Mythic+ are separate comparison contexts. The Default skin uses WoW textures; Flat dark is an original, texture-simple dark design inspired by EllesmereUI, with no dependency on it. Settings are saved as `StatCompassDB` and can be reset in the panel. English is the fallback locale.
+Stat Compass is a World of Warcraft Retail addon (Midnight, 12.1). It adds a panel to the equipment page of your character window that compares your secondary stats (Critical Strike, Haste, Mastery and Versatility) with the best European Mythic+ players of your specialization.
 
-**Data status:** The included target dataset is deliberately empty. The full-height panel consumes Core's `shareComparison`: a known own budget share can be displayed independently, but all bar, band, marker and glow graphics stay hidden without a verified comparison. If any raw secondary rating is unreadable, all own shares are unknown. With verified data, the primary band shows the middle 50% of the cohort; minimum, arithmetic mean and maximum remain separate markers. Absolute rating details come from the same snapshot's `ratingComparison` tooltips. Effect percentages never substitute for shares. The distribution describes a cohort and does not guarantee a balanced build or personal optimum. The [share UI contract](docs/secondary-budget-shares.md) documents validation and unavailable behavior. The [Blizzard acquisition tool](docs/blizzard-acquisition.md) can generate a separate candidate; source coverage, permissions, review and release remain provider responsibilities. See [provenance](docs/provenance.md).
+### What you see
 
-To install after approval, copy the `StatCompass` folder from the reproducible ZIP into `World of Warcraft/_retail_/Interface/AddOns/` with the game closed. The resulting path should end in `AddOns/StatCompass/StatCompass.toc`. Open Character → equipment; select Raid or Mythic+ and Default or Flat dark in the attached panel. Reset in the equipment panel restores Raid, Default, and the minimap defaults. The draggable minimap button opens equipment on left-click. Right-click opens Options > AddOns > Stat Compass, where you can choose the same skin, show or hide the minimap button, and reset appearance without changing Raid/Mythic+. No separate feature window is added. This combined controls candidate has not been installed into WoW or tested in game.
+For each secondary stat the panel shows your own value next to those of the top players: the range where the middle half of them sits, plus their minimum, average and maximum. The stats appear in the same order as in Blizzard's character window.
 
-Build and check locally with Python 3.11:
+The comparison group is the 30 best EU players of your specialization in the current Mythic+ season, ranked by their Mythic+ rating in that specialization. If your hero talent tree is common enough among them, Stat Compass compares you with the best players of that hero talent tree instead.
+
+The numbers show how top players distribute their gear. They do not come from a simulation, and Stat Compass cannot tell whether that distribution is the best one for your character.
+
+### Where the data comes from
+
+All data comes from Blizzard's official APIs: the Mythic+ leaderboards of every EU connected realm and the public character profiles of the top players. A weekly job in GitHub Actions collects the data again; releases ship it with the addon. The addon itself never connects to the internet, and it contains no player names.
+
+Blizzard allows its API data to be kept for 30 days, so each dataset expires after 30 days. After that the panel shows only your own values until you install a newer version.
+
+### Installing
+
+Install it from CurseForge or Wago, or unpack the ZIP of a GitHub release so that the folder ends up as `World of Warcraft/_retail_/Interface/AddOns/StatCompass`. If the game is running, type `/reload`.
+
+### Using it
+
+Open your character window and switch to the equipment page; the panel attaches on the right. A minimap button opens the equipment page with a left-click and the addon options with a right-click. There you can pick a skin (Default in WoW style, or Flat dark), show or hide the minimap button, and reset the appearance. Settings are saved per account in `StatCompassDB`.
+
+### For developers
+
+The addon lives in `StatCompass/`. The data pipeline, release tooling and tests are in `tools/` and `tests/`.
 
 ```powershell
 uv venv --python 3.11 .venv
 uv pip install --python .venv/Scripts/python.exe 'lupa==2.6' 'pytest==8.4.2'
 .venv/Scripts/python.exe -m pytest -q -p no:cacheprovider
-.venv/Scripts/python.exe tools/package.py
-.venv/Scripts/python.exe tools/package.py --verify
 ```
 
-The exact addon ZIP inventory is fixed in `tools/package.py`; it writes `dist/StatCompass-0.1.0.zip` and a SHA-256 manifest. Rebuilding from identical files yields identical bytes. `dist`, `.venv`, and tool caches are ignored. Data updates occur through reviewed addon versions, not an in-game network request. The [offline data contract](docs/data-contract.md) and [rights blocker](docs/provenance.md) are documented. Original research is preserved [verbatim](docs/research-original.md). License terms and upstream attribution are in [LICENSE](LICENSE) and [NOTICE](StatCompass/NOTICE.txt). The [test report](docs/test-report.md) records actual runs; [in-game acceptance](docs/acceptance.md) remains pending.
+- [Data acquisition from Blizzard's APIs](docs/blizzard-acquisition.md)
+- [Data contract between data and UI](docs/data-contract.md)
+- [Releases and automatic data releases](docs/releasing.md)
+- [How agents work in this repository](AGENTS.md)
 
-The ZIP includes short English and German installation/status notes as `README.txt` and `README.de.txt`.
+License terms and attributions are in [LICENSE](LICENSE) and [NOTICE](StatCompass/NOTICE.txt).
 
 ## Deutsch
 
-Stat Compass ist ein kleines Addon für World of Warcraft Retail 12.1.0. Das Fenster hängt an der **Ausrüstungsseite** des Charakterfensters. Es zeigt die Anteile von Kritisch, Tempo, Meisterschaft und Vielseitigkeit am Sekundärwert-Budget in der Reihenfolge des Blizzard-Fensters. Schlachtzug und Mythic+ sind getrennte Vergleichskontexte. „Standard“ nutzt WoW-Texturen; „Flach dunkel“ ist eine eigenständige, flache Gestaltung, inspiriert von EllesmereUI, ohne Abhängigkeit. Einstellungen werden in `StatCompassDB` gespeichert und können im Fenster zurückgesetzt werden. Für andere Spielsprachen wird Englisch verwendet.
+Stat Compass ist ein Addon für World of Warcraft Retail (Midnight, 12.1). Es ergänzt die Ausrüstungsseite deines Charakterfensters um ein Fenster, das deine Sekundärwerte (Kritisch, Tempo, Meisterschaft und Vielseitigkeit) mit den besten europäischen Mythic+-Spielern deiner Spezialisierung vergleicht.
 
-**Datenstand:** Der mitgelieferte Zieldatensatz ist absichtlich leer. Bekannte eigene Anteile werden unabhängig vom Vergleich angezeigt. Ohne geprüften Vergleich bleiben alle Balken, Spannen, Marker und Leuchteffekte verborgen. Ist einer der vier Rohwerte unlesbar, sind alle eigenen Anteile unbekannt. Bei geprüften Daten zeigt die markierte Spanne, wo die mittlere Hälfte der Top-Spieler liegt. Minimum, Mittelwert und Maximum bleiben eigene Marker. Absolute Wertungspunkte stehen in den Tooltips; Effektprozentwerte werden nie als Anteile verwendet. Die Verteilung garantiert keinen ausgewogenen Build oder ein persönliches Optimum. Achse und Quartile liefert der Core. Abdeckung, Nutzungsrechte und Datenlöschung sind anhand der aktuellen Provider-Ergebnisse zu prüfen. Einzelheiten: [UI-Vertrag](docs/secondary-budget-shares.md), [Daten- und API-Herkunft](docs/provenance.md).
+### Was du siehst
 
-Nach gesonderter Freigabe den Ordner `StatCompass` aus dem reproduzierbaren ZIP bei geschlossenem Spiel nach `World of Warcraft/_retail_/Interface/AddOns/` kopieren. Der Pfad muss auf `AddOns/StatCompass/StatCompass.toc` enden. Charakter → Ausrüstung öffnen; im angehängten Fenster Schlachtzug oder Mythic+ und Standard oder Flach dunkel wählen. „Zurücksetzen“ im Ausrüstungsfenster stellt Schlachtzug, Standard und die Minikarten-Vorgaben wieder her. Das verschiebbare Minikartensymbol öffnet die Ausrüstung per Linksklick. Rechtsklick öffnet Optionen > AddOns > Stat Compass: Design wählen, Minikartensymbol ein- oder ausblenden und Darstellung zurücksetzen, ohne Schlachtzug/Mythic+ zu ändern. Ein weiteres Funktionsfenster gibt es nicht. Diese zusammengeführte Version mit Minikarten- und Optionssteuerung wurde in WoW weder installiert noch getestet.
+Für jeden Sekundärwert zeigt das Fenster deinen eigenen Wert neben denen der Top-Spieler: den Bereich, in dem die mittlere Hälfte von ihnen liegt, dazu ihr Minimum, ihren Durchschnitt und ihr Maximum. Die Werte stehen in derselben Reihenfolge wie in Blizzards Charakterfenster.
 
-Die Befehle zum Testen und Packen stehen im englischen Abschnitt. Der ZIP-Inhalt und die Hashes werden geprüft. Daten werden nur mit einer geprüften Addon-Version aktualisiert, nicht über eine Netzwerkanfrage im Spiel. [Lizenz](LICENSE), [Herkunft](docs/provenance.md), [Testbericht](docs/test-report.md) und [offene Spielprüfung](docs/acceptance.md) dokumentieren den Stand.
+Verglichen wird mit den 30 besten EU-Spielern deiner Spezialisierung in der aktuellen Mythic+-Saison, sortiert nach ihrer Mythic+-Wertung in dieser Spezialisierung. Ist dein Heldentalent unter ihnen verbreitet genug, nimmt Stat Compass stattdessen die besten Spieler mit diesem Heldentalent.
+
+Die Zahlen zeigen, wie Top-Spieler ihre Ausrüstung verteilen. Eine Simulation steckt nicht dahinter, und ob diese Verteilung für deinen Charakter die beste ist, kann Stat Compass nicht sagen.
+
+### Woher die Daten kommen
+
+Alle Daten kommen aus Blizzards offiziellen Schnittstellen: den Mythic+-Bestenlisten aller EU-Realmverbünde und den öffentlichen Charakterprofilen der Top-Spieler. Ein wöchentlicher Lauf in GitHub Actions erhebt sie neu, und jeder Release liefert sie mit dem Addon aus. Das Addon selbst geht nie ins Internet und enthält keine Spielernamen.
+
+Blizzard erlaubt, API-Daten 30 Tage aufzubewahren. Deshalb verfällt jeder Datensatz nach 30 Tagen. Danach zeigt das Fenster nur noch deine eigenen Werte, bis du eine neuere Version installierst.
+
+### Installation
+
+Installiere es über CurseForge oder Wago, oder entpacke das ZIP eines GitHub-Releases so, dass der Ordner unter `World of Warcraft/_retail_/Interface/AddOns/StatCompass` liegt. Läuft das Spiel, genügt `/reload`.
+
+### Bedienung
+
+Öffne das Charakterfenster und wechsle auf die Ausrüstungsseite; das Fenster hängt rechts daneben. Ein Minikartensymbol öffnet die Ausrüstung per Linksklick und die Addon-Optionen per Rechtsklick. Dort wählst du das Design (Standard im WoW-Stil oder Flach dunkel), blendest das Minikartensymbol ein oder aus und setzt die Darstellung zurück. Die Einstellungen werden pro Account in `StatCompassDB` gespeichert.
+
+### Für Entwickler
+
+Das Addon liegt in `StatCompass/`, Datenpipeline, Release-Werkzeuge und Tests in `tools/` und `tests/`. Die Befehle zum Testen stehen im englischen Teil. Weitere Dokumentation: [Datenbeschaffung](docs/blizzard-acquisition.md), [Datenvertrag](docs/data-contract.md), [Releases](docs/releasing.md) und [Arbeitsweise der Agenten](AGENTS.md).
+
+Lizenz und Hinweise zu Fremdquellen stehen in [LICENSE](LICENSE) und [NOTICE](StatCompass/NOTICE.txt).

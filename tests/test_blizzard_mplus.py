@@ -1,6 +1,7 @@
 """Synthetic Blizzard API cases; no real player identities are shipped in fixtures."""
 import importlib.util
 import json
+import math
 from collections import Counter
 from io import BytesIO
 from pathlib import Path
@@ -306,7 +307,7 @@ def test_read_timeouts_and_truncated_bodies_are_retried():
     client = bz.Client("token", opener=TimeoutOpener(["timeout", "truncated", {"ok": 2}]), sleep=sleeps.append, clock=lambda: 0.0)
     assert client.get("/data/wow/connected-realm/index", "dynamic-eu") == {"ok": 2}
     assert client.status_counts["transport"] == 2 and [s for s in sleeps if s >= 1] == [1, 2]  # backoff, not pacing
-    failing = bz.Client("token", opener=TimeoutOpener(["timeout"] * 3), sleep=lambda s: None, clock=lambda: 0.0)
+    failing = bz.Client("token", opener=TimeoutOpener(["timeout"] * 4), sleep=lambda s: None, clock=lambda: 0.0)
     with pytest.raises(bz.BlizzardError, match="network"):
         failing.get("/data/wow/connected-realm/index", "dynamic-eu")
 
@@ -425,3 +426,60 @@ def test_hero_runs_respect_their_own_profile_budget():
     cert.run(62, target=2, max_profiles=1)
     fetched = [p for p, _ in client.calls if "mythic-keystone-profile" in p]
     assert len(fetched) == 1
+
+
+
+def test_hero_trees_prefer_profile_ids_over_static_duplicates():
+    meta = {"heroTrees": [(55, "Stormbringer"), (56, "Farseer"), (70, "Stormbringer"), (72, "Farseer"), (73, "Stormbringer")]}
+    rows = [{"heroTree": {"id": 56, "name": "Farseer"}}]
+    heroes = {1: (262, 55, "Stormbringer"), 2: (263, 70, "Stormbringer")}  # 2 plays another spec
+    assert bz.hero_trees(262, meta, rows, heroes) == {56: "Farseer", 55: "Stormbringer"}
+    # a tree nobody at the top plays is still searched under its first static ID
+    assert bz.hero_trees(262, meta, [], {}) == {55: "Stormbringer", 56: "Farseer"}
+
+
+class FlakyClient(FakeClient):
+    def __init__(self, responses, failing):
+        super().__init__(responses)
+        self.failing = failing
+
+    def get(self, path, namespace):
+        if any(part in path for part in self.failing):
+            self.calls.append((path, namespace))
+            raise bz.TransportError("network unavailable")
+        return super().get(path, namespace)
+
+
+def test_one_characters_network_failure_does_not_end_the_run():
+    profiles = {c: season_profile(c, [(1, 400.0 - c, 62, True), (2, 390.0 - c, 62, True)]) for c in (1, 2, 3)}
+    cert, client = certifier_fixture(profiles, floors=[])
+    flaky = FlakyClient(client.responses, failing=["synthetic2/statistics", "synthetic3/specializations"])
+    cert.client = flaky
+    rows, reasons, info = cert.run(62, target=2)
+    assert len(rows) == 1 and not info["certified"]      # only character 1 is still usable
+    assert reasons["network"] == 1 and reasons["activeSpec"] == 1  # 2: statistics failed, 3: tree unknown
+    assert cert.hero_of(3) == (None, None, None) and 3 not in cert.heroes  # not cached, may be retried
+    flaky.failing = ["mythic-keystone-profile"]
+    cert.profiles.clear()
+    assert cert.profile(1) is None                      # profile failure: board facts only
+
+
+def test_failed_leaderboard_is_unknown_and_its_week_stays_open():
+    responses = {"/data/wow/connected-realm/1/mythic-leaderboard/index": {"current_leaderboards": [{"id": 500}]},
+                 "/data/wow/connected-realm/1/mythic-leaderboard/500/period/1001":
+                     {"leading_groups": [group(20, 450.0, [member(1, 62)])]}}
+    client = FlakyClient(responses, failing=["/period/1002"])
+    stats = bz.scan(client, [1], [1001, 1002], bz.SpecRanker(), workers=1)
+    assert stats["failed"] == Counter({1002: 1}) and stats["present"] == Counter({1001: 1})
+    bounds, cap = bz.board_bounds(stats["floors"])
+    assert cap == 1 and bounds[(1, 500)] == math.inf     # the failed board could hide anything
+
+
+def test_client_raises_transport_errors_for_5xx_and_plain_errors_otherwise():
+    client = bz.Client("token", opener=Opener([503, 503, 503, 503]), sleep=lambda s: None, clock=lambda: 0.0)
+    with pytest.raises(bz.TransportError):
+        client.get("/data/wow/connected-realm/index", "dynamic-eu")
+    client = bz.Client("token", opener=Opener([403]), sleep=lambda s: None, clock=lambda: 0.0)
+    with pytest.raises(bz.BlizzardError) as error:
+        client.get("/data/wow/connected-realm/index", "dynamic-eu")
+    assert not isinstance(error.value, bz.TransportError)

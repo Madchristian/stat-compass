@@ -530,3 +530,59 @@ def test_walk_checks_ahead_in_parallel_without_changing_the_result():
     assert client.peak > 1                                # lookups really overlapped
     hero, _, _ = parallel.run(62, target=3, hero_id=66, minimum=2, max_walk=4)
     assert [r["rank"] for r in hero] == [1, 2, 3]
+
+
+def plausible_rows(n=20):
+    """A Guardian-like cohort: crit 20 % + 0.02 %/rating, haste 0.022 %/rating, mastery 10 % + 0.015, vers 0.018."""
+    rows = []
+    for i in range(n):
+        r = {"crit": 900 + 7 * i, "haste": 1200 - 5 * i, "mastery": 450 + 3 * i, "versatility": 400 - 2 * i}
+        rows.append({"ratings": dict(r), "crit": 20 + 0.02 * r["crit"], "haste": 0.022 * r["haste"],
+                     "mastery": 10 + 0.015 * r["mastery"], "versatility": 0.018 * r["versatility"]})
+    return rows
+
+
+def test_hard_problems_are_only_impossible_values():
+    good = plausible_rows(1)[0]
+    assert bz.hard_problem(good) is None
+    assert bz.hard_problem(dict(good, crit=101)) == "invalid"                     # a probability above 100 %
+    assert bz.hard_problem(dict(good, ratings=dict(good["ratings"], haste=None))) == "invalid"
+    assert bz.hard_problem(dict(good, ratings={k: 0 for k in bz.STAT_KEYS})) == "invalid"
+    assert bz.hard_problem(dict(good, ratings=dict(good["ratings"], haste=4000))) is None  # no invented cutoff
+
+
+def test_plausibility_quarantines_errors_but_keeps_real_variety():
+    rows = plausible_rows()
+    assert bz.plausibility(rows) == ({}, {})
+    assert bz.plausibility(rows[:9]) == ({}, {})                                   # too few for statistics
+    mixed = [dict(r) for r in rows]
+    mixed[3] = dict(mixed[3], crit=mixed[3]["ratings"]["crit"])                    # rating stored as percent
+    talent = [dict(r) for r in rows]
+    talent[4] = dict(talent[4], haste=talent[4]["haste"] + 20)                     # a spec effect below the stat's median (~25 %)
+    other = [dict(r, ratings=dict(r["ratings"])) for r in rows]
+    other[5]["ratings"].update(mastery=2600, crit=200)                             # a wholly different build
+    other[5]["mastery"] = 10 + 0.015 * 2600
+    other[5]["crit"] = 20 + 0.02 * 200
+    assert bz.plausibility(mixed)[0] == {3: "inconsistent"}
+    assert bz.plausibility(talent)[0] == {}                                        # +20 points stays in
+    quarantine, flags = bz.plausibility(other)
+    assert quarantine == {5: "outlier"}
+
+
+def test_walk_replaces_quarantined_players_from_further_down():
+    ranker = bz.SpecRanker()
+    for c in range(1, 16):
+        ranker.add(dict(dungeon=1, rating=500.0 - c, level=20, period=1, duration=1, completed=c,
+                        members=[dict(id=c, name=f"Synthetic{c}", realm="synthetic-realm", realmId=11, spec=62)]))
+    responses = {}
+    for c in range(1, 16):
+        responses |= character(c, 62, ilvl=330)
+        stats = statistics(crit=20.0, haste=15.0, mastery=30.0, vers=8.0)
+        stats["spell_crit"]["rating_normalized"] = 900 + c                        # a gentle, consistent spread
+        if c == 2:
+            stats["spell_crit"]["value"] = 900.0                                   # unit mix-up for player 2
+        responses[f"/profile/wow/character/synthetic-realm/synthetic{c}/statistics"] = stats
+    cert = bz.Certifier(FakeClient(responses), ranker, [1], {}, {11: 100}, season_id=18, max_level=90, ilvl_gap=10)
+    kept, walked, excluded = cert._walk(sorted(range(1, 16)), 62, 12)
+    assert excluded == {2: "invalid"}                                              # crit 900 % is impossible
+    assert kept == [1] + list(range(3, 14)) and walked == 13

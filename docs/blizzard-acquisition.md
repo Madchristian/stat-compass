@@ -26,6 +26,29 @@ A `--min-run-rating` pre-filter (default 300) drops weak runs while scanning. It
 
 `/specializations` returns the active specialization and `active_hero_talent_tree` (ID and name). The certifier reads it first for every candidate; a player of the wrong spec or tree costs one request. For every hero tree seen among a spec's checked players, the same certification runs restricted to that tree, walking at most `--hero-walk` (150) ranked players. A tree with fewer than 20 usable players gets no cohort of its own: at the top, Brewmaster is almost entirely Master of Harmony (10 of 11), so a Shado-Pan cohort would compare against far weaker players. The spec cohort records the tree mix (`heroMix`). Like the stats, the tree is the one equipped now, not the one used in the ranked runs.
 
+## Plausibility (issue #4)
+
+Two stages, both fail-closed and reported with a reason; nothing is clipped.
+
+- **Hard checks per player**, reason `invalid`:
+  - every number must be finite and non-negative (otherwise no statistics at all);
+  - all four ratings must be present;
+  - crit must be at most 100 %, because it is a probability;
+  - the four ratings must not all be zero.
+
+  There is no fixed rating cutoff: no verified build, level or equipment bound exists, so a value like 4,000 haste rating is judged by the cohort, not by its size.
+- **Cohort checks on the players picked so far** (from 10 players on), run after the item level filter:
+  - `outlier`: a stat's share of the secondary rating budget is more than 30 points and more than 5 robust z (median/MAD) from the cohort median. The player is quarantined and the walk takes the next ranked player.
+  - Above 3.5 robust z the player is only marked (`flags`, counted as `flagged` in the report) and stays in.
+  - `inconsistent`: a percentage lies further from the cohort's rating-to-percent line (Theil-Sen) than both 15 points and the stat's median value. That is the signature of a unit mix-up, such as a rating stored as a percentage.
+
+Calibration on the season 18 cohorts (1,200 players):
+
+- Budget shares sit a median 2.8 and at most 15.4 points (99th percentile) from their cohort median.
+- Percent residuals are under 0.02 points for 90 % of values. Windwalker reaches about 37 points, because a spec effect raises haste.
+- Result: one player was quarantined (an Augmentation Evoker with 9 % mastery share against a cohort median of 48 %), 70 players were only flagged.
+- Real build variants stay in. Protection Paladin's mastery build (34 % share) scores about 3.2.
+
 ## Statistics
 
 `/profile/wow/character/{realm}/{name}/statistics`, with the Character-window semantics:

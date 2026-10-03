@@ -557,7 +557,11 @@ class Certifier:
         pool = None
         try:
             for i, c in enumerate(order):
-                if len(self._item_level_filter(picked, spec_id)) >= target or (max_walk and walked >= max_walk):
+                if max_walk and walked >= max_walk:
+                    break
+                # cheap item level check first; the statistics only once enough players are in
+                if len(self._item_level_filter(picked, spec_id)) >= target and \
+                        len(self._cohort_filter(picked, spec_id)[0]) >= target:
                     break
                 if not self._known(c, spec_id, hero_id):
                     room = self.workers if not max_walk else min(self.workers, max_walk - walked)
@@ -574,10 +578,21 @@ class Certifier:
         finally:
             if pool:
                 pool.shutdown()
-        kept = self._item_level_filter(picked, spec_id)
-        for c in set(picked) - set(kept):
-            excluded[c] = "itemLevel"
-        return kept[:target], walked, excluded
+        kept, reasons, flags = self._cohort_filter(picked, spec_id)
+        excluded.update(reasons)
+        kept = kept[:target]
+        for c in kept:
+            self.checks[(c, spec_id)]["flags"] = flags.get(c, [])
+        return kept, walked, excluded
+
+    def _cohort_filter(self, picked, spec_id):
+        """(kept, {char: reason}, {char: flags}): item level outliers first, then plausibility."""
+        by_level = self._item_level_filter(picked, spec_id)
+        reasons = {c: "itemLevel" for c in picked if c not in set(by_level)}
+        quarantine, marks = plausibility([self.checks[(c, spec_id)] for c in by_level])
+        reasons.update({by_level[i]: reason for i, reason in quarantine.items()})
+        kept = [c for i, c in enumerate(by_level) if i not in quarantine]
+        return kept, reasons, {by_level[i]: f for i, f in marks.items()}
 
     def _item_level_filter(self, picked, spec_id):
         levels = [self.checks[(c, spec_id)]["itemLevel"] for c in picked if type(self.checks[(c, spec_id)]["itemLevel"]) is int]
@@ -666,6 +681,77 @@ def extract_stats(payload):
     return out if all(out[k] is not None for k in STAT_KEYS) else None
 
 
+def hard_problem(stats):
+    """A reason when an observation cannot be right, else None. No invented rating cutoffs:
+    only missing ratings, crit above 100 % (a probability) or no secondary rating at all."""
+    ratings = stats.get("ratings") or {}
+    if any(type(ratings.get(k)) not in (int, float) for k in STAT_KEYS):
+        return "invalid"
+    if stats["crit"] > 100 or sum(ratings[k] for k in STAT_KEYS) <= 0:
+        return "invalid"
+    return None
+
+
+# --- cohort plausibility: robust statistics over the players picked so far ------------------
+# Calibrated on the season 18 cohorts (1,200 players): budget shares sit a median 2.8 and at most
+# 15.4 points (99th percentile) from their cohort median, so only far larger gaps are quarantined.
+OUTLIER_QUARANTINE, OUTLIER_FLAG, OUTLIER_MIN_POINTS = 5.0, 3.5, 30.0
+# Percent residuals from the rating->percent line are below 0.02 points for 90 % of values and
+# reach about 37 points where a spec effect raises haste (Windwalker); a unit mix-up is far larger.
+INCONSISTENT_MIN_POINTS = 15.0
+MIN_STATISTICS = 10          # robust statistics need some players before they mean anything
+
+
+def _robust_z(values, floor):
+    """(value - median) / (1.4826 * MAD) with a floor on the scale, so a tight cohort does not turn
+    tiny differences into huge scores."""
+    med = _median(values)
+    scale = max(1.4826 * _median([abs(v - med) for v in values]), floor)
+    return [(v - med) / scale for v in values]
+
+
+def _theil_sen(xs, ys):
+    """Robust line through (rating, percent): median pairwise slope, median intercept."""
+    slopes = [(ys[j] - ys[i]) / (xs[j] - xs[i]) for i in range(len(xs)) for j in range(i + 1, len(xs))
+              if xs[j] != xs[i]]
+    if not slopes:
+        return None
+    slope = _median(slopes)
+    return slope, _median([y - slope * x for x, y in zip(xs, ys)])
+
+
+def plausibility(rows):
+    """Split rows (stat dicts with ratings) into quarantine reasons and mild flags by index.
+
+    - outlier: a stat's share of the secondary rating budget is more than 30 points and more than
+      5 robust z from the cohort median. Above 3.5 z it is only flagged. Shares, not ratings, so item
+      level differences do not count. Real build variants stay in: Protection Paladin's mastery
+      build (34 % share) scores about 3.2 and is not even flagged.
+    - inconsistent: a stat's percentage is further from the cohort's rating->percent line
+      (Theil-Sen) than both 15 points and the cohort's median value of that stat: a unit mix-up,
+      not a talent that adds a few percent."""
+    quarantine, flags = {}, {}
+    if len(rows) < MIN_STATISTICS:
+        return quarantine, flags
+    budgets = [sum(r["ratings"][k] for k in STAT_KEYS) for r in rows]
+    for key in STAT_KEYS:
+        shares = [100 * r["ratings"][key] / b for r, b in zip(rows, budgets)]
+        center = _median(shares)
+        for i, (share, z) in enumerate(zip(shares, _robust_z(shares, floor=1.0))):
+            if abs(z) > OUTLIER_QUARANTINE and abs(share - center) > OUTLIER_MIN_POINTS:
+                quarantine.setdefault(i, "outlier")
+            elif abs(z) > OUTLIER_FLAG:
+                flags.setdefault(i, []).append(f"outlier:{key}")
+        line = _theil_sen([r["ratings"][key] for r in rows], [r[key] for r in rows])
+        if line:
+            slope, intercept = line
+            limit = max(INCONSISTENT_MIN_POINTS, abs(_median([r[key] for r in rows])))
+            for i, r in enumerate(rows):
+                if abs(r[key] - (intercept + slope * r["ratings"][key])) > limit:
+                    quarantine.setdefault(i, "inconsistent")
+    return quarantine, flags
+
+
 def character_path(realm, name, suffix=""):
     return f"/profile/wow/character/{quote(realm.lower(), safe='')}/{quote(name.lower(), safe='')}{suffix}"
 
@@ -685,6 +771,8 @@ def verify(client, row, spec_id, max_level):
     stats = extract_stats(client.get(character_path(row["realm"], row["name"], "/statistics"), "profile-eu"))
     if stats is None:
         return None, "statistics"
+    if hard_problem(stats):
+        return None, hard_problem(stats)
     stats["itemLevel"] = summary.get("equipped_item_level")
     stats["observedAt"] = int(time.time())
     return stats, None
@@ -796,6 +884,7 @@ def build_report(*, season_id, periods, realms, specs, scan_stats, ranking, fall
                      "ratingRanges": {k: _range([v["ratings"][k] for v in valid]) for k in STAT_KEYS},
                      "itemLevelRange": _range([v["itemLevel"] for v in valid]),
                      "heroMix": hero_mix(valid),
+                     "flagged": sum(1 for v in valid if v.get("flags")),
                      "heroPopularity": (popularity or {}).get(spec_id),
                      "heroCohorts": {str(h): dict(name=name, certification=cert_, **_cohort_summary(rows))
                                      for h, (name, rows, cert_) in (heroes or {}).get(spec_id, {}).items()}})

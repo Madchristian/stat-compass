@@ -385,53 +385,22 @@ function A.ShareComparison(target, ratings)
   end
   return result
 end
--- The player's own rating -> percent conversion, read from the game: `rate` is percent per rating
--- point, `base` what the character window would show without any secondary rating (race,
--- talents, spec, buffs). Mastery uses its effect coefficient from GetMasteryEffect.
-function A.ReadConversion(current, ratings)
-  local conversions = {}
-  for j=1,#STATS do
-    local key = STATS[j]
-    local bonus
-    if key == "mastery" then
-      local fn = GetMasteryEffect
-      local ok, _, coefficient = pcall(fn)
-      local points = call(GetCombatRatingBonus, 26)
-      if public(ok) and ok == true and finite(coefficient) and finite(points) then bonus = points * coefficient end
-    else
-      for _,id in ipairs(RATING_IDS[key]) do
-        local value = call(GetCombatRatingBonus, id)
-        if finite(value) and (not bonus or value > bonus) then bonus = value end
-      end
-    end
-    local now, rating = current and current[key], ratings and ratings[key]
-    if finite(now) and finite(bonus) and finite(rating) and rating > 0 and bonus > 0 then
-      conversions[key] = {base=now - bonus, rate=bonus / rating}
-    end
-  end
-  return conversions
-end
--- Rating targets as the player would need them: the cohort's median percentage (and its 40th-60th
--- percentile band) converted back with the player's own conversion, so race, talents and spec
--- passives count. Without a readable conversion the cohort's own ratings stand in.
-function A.RatingTargets(target, ratings, current)
-  local conversions = A.ReadConversion(current, ratings)
+-- Rating targets compare rating with rating: GetCombatRating in game and Blizzard's
+-- rating_normalized are both pure gear rating, free of buffs, talents and racials. Converting the
+-- cohort's percentages with the player's own in-game conversion was dropped: the player's live
+-- percentages include buffs (Mark of the Wild alone is +3% versatility) that the logged-out API
+-- profiles never have, which pushed targets far too low (Guardian versatility came out at 8).
+function A.RatingTargets(target, ratings)
   local result, total, budget = {}, 0, 0
   for j=1,#STATS do
     local key = STATS[j]
     local own = ratings and finite(ratings[key]) and ratings[key] or nil
     if own and budget then budget = budget + own else budget = nil end
-    local pct, rating, conv = target and target.pct and target.pct[key], target and target.rating and target.rating[key], conversions[key]
+    local rating, pct = target and target.rating and target.rating[key], target and target.pct and target.pct[key]
     local entry = {currentRating=own}
-    if pct and conv then
-      local function need(percent) return math.max(0, (percent - conv.base) / conv.rate) end
-      entry.targetRating, entry.lowRating, entry.highRating = need(pct.median), need(pct.low), need(pct.high)
-      entry.targetPercent, entry.personal = pct.median, true
-    elseif rating and rating.median then
+    if rating and rating.median then
       entry.targetRating, entry.lowRating, entry.highRating = rating.median, rating.p40, rating.p60
-      entry.targetPercent, entry.personal = pct and pct.median, false
-    end
-    if entry.targetRating then
+      entry.targetPercent = pct and pct.median  -- the cohort's median percentage, for the tooltip only
       entry.sampleCount, entry.sourceStatus = target.sample, "verified"
       if total then total = total + entry.targetRating end
     else
@@ -450,7 +419,7 @@ function A.Snapshot()
   local ratings, current = A.ReadRatings(), A.ReadStats()
   return {specID=specID, specName=specName, heroTreeID=heroID, current=current, target=target,
     ratingComparison=A.RatingComparison(target, ratings), shareComparison=A.ShareComparison(target, ratings),
-    ratingTarget=A.RatingTargets(target, ratings, current)}
+    ratingTarget=A.RatingTargets(target, ratings)}
 end
 function A.Flush()
   A.pending = false

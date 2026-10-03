@@ -174,44 +174,37 @@ def test_share_comparison_ignores_gear_level():
 
 
 
-def test_personal_rating_targets_use_own_conversion():
+def test_rating_targets_compare_rating_with_rating():
     from tests.test_addon import load_runtime, run
     build = load_tool("build_data")
     tool = load_tool("blizzard_dataset")
-    source = observations(**{"71": 30})   # crit 20.1 .. 23.0 %, mastery 30 %, versatility 5 %, haste rating 700
+    source = observations(**{"71": 30})   # crit rating 901 .. 930, haste 700, mastery 800, versatility 250
     data_manifest, _ = tool.manifest(source, interface=120100, client_build=69933, level=90, now=NOW)
     data = build.checked(data_manifest, b"synthetic", now=NOW)
     lua = load_runtime("""
-      local bonus = {[9]=8, [10]=8, [11]=8, [18]=0, [19]=0, [20]=0, [26]=10, [29]=5}
+      local bonus = {[9]=8, [10]=8, [11]=8, [18]=0, [19]=0, [20]=0, [26]=10, [29]=12}
       function GetCombatRatingBonus(id) return bonus[id] end
     """)
     run(lua, "StatCompass.releaseData=" + build.lua_value(data))
     run(lua, f"GetServerTime=function() return {NOW} end")
     run(lua, """
-      GetMasteryEffect = function() return 30, 1.5 end      -- 10 points from rating * 1.5 = 15 % from rating
       local function near(a, b) return math.abs(a - b) < 1e-9 end
       local t = StatCompass.GetTarget(71, "mythic")
-      assert(near(t.pct.crit.median, 21.5) and near(t.pct.crit.low, 21.2) and near(t.pct.crit.high, 21.8))  -- ranks 15, 12, 18
-      local current = {crit=18, haste=10, mastery=30, versatility=5}
       local ratings = {crit=400, haste=300, mastery=500, versatility=250}
-      local r = StatCompass.RatingTargets(t, ratings, current)
-      -- crit: 8 % from 400 rating -> 0.02 %/rating, base 10 %; median 21.5 % needs 575 rating
-      assert(r.crit.personal and near(r.crit.targetRating, 575) and near(r.crit.lowRating, 560) and near(r.crit.highRating, 590))
-      assert(r.crit.currentRating == 400 and near(r.crit.targetPercent, 21.5) and r.crit.sampleCount == 30)
-      -- mastery: base 15 %, 0.03 %/rating; cohort 30 % -> 500
-      assert(r.mastery.personal and near(r.mastery.targetRating, 500))
-      -- haste: no readable bonus -> the cohort's own median rating stands in
-      assert(r.haste.personal == false and r.haste.targetRating == 700)
-      assert(near(r.totals.targetRating, 575 + 700 + 500 + 250) and r.totals.ownRating == 1450)
-      -- above the target percent the need never goes negative
-      local rich = StatCompass.RatingTargets(t, ratings, {crit=60, haste=10, mastery=30, versatility=5})
-      assert(rich.crit.targetRating == 0)
+      local r = StatCompass.RatingTargets(t, ratings)
+      -- median and 40th/60th percentile of the cohort's own ratings: ranks 15, 12 and 18
+      assert(r.crit.targetRating == 915 and r.crit.lowRating == 912 and r.crit.highRating == 918)
+      assert(r.crit.currentRating == 400 and r.crit.sampleCount == 30 and r.crit.sourceStatus == "verified")
+      assert(near(r.crit.targetPercent, 21.5))                  -- tooltip only
+      assert(r.haste.targetRating == 700 and r.versatility.targetRating == 250)
+      assert(r.totals.targetRating == 915 + 700 + 800 + 250 and r.totals.ownRating == 1450)
+      -- live percentages and buffs no longer move the target
+      GetVersatilityBonus = function() return 3 end
+      GetMasteryEffect = function() return 99, 2 end
+      assert(StatCompass.RatingTargets(t, ratings).versatility.targetRating == 250)
       -- no cohort: nothing to aim at, but the own rating stays
-      local none = StatCompass.RatingTargets(nil, ratings, current)
+      local none = StatCompass.RatingTargets(nil, ratings)
       assert(none.crit.sourceStatus == "unavailable" and none.crit.currentRating == 400 and none.totals.targetRating == nil)
-      GetMasteryEffect = function() error("unavailable") end
-      assert(StatCompass.RatingTargets(t, ratings, current).mastery.personal == false)
-      -- the snapshot carries the targets
       StatCompass.settings.mode = "mythic"
       assert(StatCompass.Snapshot().ratingTarget.totals)
     """)

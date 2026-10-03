@@ -192,6 +192,7 @@ jobs:
       contents: write
       actions: read
     uses: ./.github/workflows/release.yml
+    secrets: inherit          # CF_API_KEY for the CurseForge upload
     with:
       tag: ${{ needs.data-release.outputs.tag }}
       data_artifact: mplus-data-${{ github.run_number }}

@@ -52,10 +52,9 @@ Unter Actions → `Release` → `Run workflow` läuft alles wie bei einem echten
 
 ## Einrichtung bei CurseForge und Wago
 
-Das ist einmalig und läuft wie bei den anderen Addons:
+Die Projekt-IDs stehen in `StatCompass/StatCompass.toc`: CurseForge `1724016`, Wago `YK9xO36L`.
 
-1. Bei CurseForge und Wago jeweils ein Projekt anlegen und das GitHub-Repository bzw. den Webhook verbinden.
-2. Die Projekt-IDs stehen in `StatCompass/StatCompass.toc`: CurseForge `1724016`, Wago `YK9xO36L`.
-3. Einen Probelauf starten, danach den ersten Tag setzen.
+- **Wago** holt sich jedes GitHub-Release über den Webhook (Ereignis `release`). Wago bekommt damit genau das Paket mit den geprüften Daten.
+- **CurseForge** bekommt dasselbe Paket per API-Upload aus `release.yml`. Dafür muss im Repository das Secret `CF_API_KEY` stehen (CurseForge → My API Tokens). Ohne das Secret überspringt der Packager den Upload. Ein CurseForge-Webhook auf `push` darf es nicht geben: CurseForge würde das Paket dann selbst aus dem Repository bauen, wo `Data.lua` leer ist, und bei jedem Push einen Alpha-Build anlegen.
 
-Das Repository ist privat. Ob ein Host Releases aus einem privaten Repository abholen kann, hängt von der Freigabe ab, die du ihm beim Verbinden gibst.
+Danach einen Probelauf starten, dann den ersten Tag setzen.

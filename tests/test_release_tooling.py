@@ -1,6 +1,8 @@
 """Release tooling: bilingual changelog generator, release data check, packaging configuration."""
 import json
+import textwrap
 import time
+from zipfile import ZipFile
 
 import pytest
 
@@ -83,6 +85,27 @@ def test_release_data_accepts_valid_and_rejects_empty_or_short_lived(tmp_path):
     tampered.write_text(good.read_text(encoding="utf-8").replace('["schema"]=3', '["schema"]=2'), encoding="utf-8")
     with pytest.raises(ValueError, match="rejected"):
         tool.check(tampered, now=now, min_days=7, min_cohorts=3)
+
+
+@pytest.mark.parametrize("icon_path", ["StatCompass/icon.tga", None, "StatCompass/assets/icon.tga"])
+def test_release_archive_gate_requires_icon_at_runtime_path(tmp_path, monkeypatch, icon_path):
+    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    step = workflow.split("      - name: Verify package\n", 1)[1]
+    script = textwrap.dedent(step.split("python - <<'EOF'\n", 1)[1].split("          EOF", 1)[0])
+    release = tmp_path / ".release"
+    release.mkdir()
+    with ZipFile(release / "synthetic-test-only.zip", "w") as archive:
+        for name in ("StatCompass.toc", "Core.lua", "Data.lua", "UI.lua", "Locales.lua", "Controls.lua"):
+            # Synthetic gate fixture only, never release data or a publishable artifact.
+            archive.writestr(f"StatCompass/{name}", b"synthetic-test-only\n" * 6000 if name == "Data.lua" else b"test")
+        if icon_path:
+            archive.writestr(icon_path, (ROOT / "StatCompass/icon.tga").read_bytes())
+    monkeypatch.chdir(tmp_path)
+    if icon_path == "StatCompass/icon.tga":
+        exec(compile(script, "release.yml:Verify package", "exec"), {})
+    else:
+        with pytest.raises(SystemExit, match=r"missing=.*StatCompass/icon\.tga"):
+            exec(compile(script, "release.yml:Verify package", "exec"), {})
 
 
 def test_packaging_configuration():

@@ -8,6 +8,12 @@ from tests.test_tools import load_tool
 
 def runtime_with_manifest(manifest):
     builder = load_tool("build_data")
+    manifest=copy.deepcopy(manifest)
+    for c in list(manifest["cohorts"]):
+        if c["mode"] == "raid" and not any(x["mode"]=="mythic" and x["specID"]==c["specID"] for x in manifest["cohorts"]):
+            m=copy.deepcopy(c); m["mode"]="mythic"
+            for row in m["observations"]: row["mode"]="mythic"
+            manifest["cohorts"].append(m)
     data = builder.checked(manifest, b"synthetic review fixture", now=NOW)
     lua = load_runtime()
     run(lua, "StatCompass.releaseData=" + builder.lua_value(data))
@@ -58,7 +64,7 @@ def test_visible_target_expires_once_and_old_lifecycle_timer_cannot_render():
       local old=widgets.timers[1].fn
       now=1800001000
       old()
-      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
+      assert(StatCompass.status.text==StatCompass.Text("targetUnavailable","enUS"))
       assert(#widgets.timers==1) -- no recurring timer
       PaperDollFrame:Hide()
       now=1800000000
@@ -70,7 +76,7 @@ def test_visible_target_expires_once_and_old_lifecycle_timer_cannot_render():
       stale()
       assert(StatCompass.status.text==shown)
       PaperDollFrame:Show()
-      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
+      assert(StatCompass.status.text==StatCompass.Text("targetUnavailable","enUS"))
     ''')
 
 
@@ -81,16 +87,16 @@ def test_expiry_timer_is_replaced_on_context_data_refresh_and_unknown_clock():
       GetServerTime=function() return now end
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local old=widgets.timers[1].fn
-      StatCompass.SetMode("mythic"); RunCallbacks()
+      StatCompass.SetCollapsed(true); RunCallbacks()
       local before=StatCompass.status.text
       old()
       assert(StatCompass.status.text==before)
-      StatCompass.SetMode("raid"); RunCallbacks()
+      StatCompass.SetCollapsed(false); RunCallbacks()
       local oldDataTimer=widgets.timers[2].fn
       StatCompass.releaseData={}
       Fire("COMBAT_RATING_UPDATE"); RunCallbacks()
       oldDataTimer()
-      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
+      assert(StatCompass.status.text==StatCompass.Text("targetUnavailable","enUS"))
     ''')
     lua = runtime_with_manifest(synthetic_manifest())
     run(lua, '''
@@ -100,7 +106,7 @@ def test_expiry_timer_is_replaced_on_context_data_refresh_and_unknown_clock():
       local expiry=widgets.timers[1].fn
       clock=nil
       expiry()
-      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
+      assert(StatCompass.status.text==StatCompass.Text("targetUnavailable","enUS"))
     ''')
 
 
@@ -182,7 +188,11 @@ def test_packaged_german_readme_has_matching_status_and_inventory():
     from tests.test_tools import load_tool
     root = Path(__file__).resolve().parents[1]
     text = (root / "StatCompass/README.de.txt").read_text(encoding="utf-8")
-    assert "EU-Top-50" in text and "keine" in text.lower()
+    assert "EU-Top-30" in text and "EU-Top-50" not in text
+    assert "Data.lua im Repository enthält absichtlich keine Zieldaten" in text
+    assert "Release-Pakete" in text and "generierte Daten" in text
+    assert "Ohne gültige Daten" in text and "Ziele und Balken verborgen" in text
+    assert "keine öffentliche Veröffentlichung" in text
     assert "StatCompass/README.de.txt" in load_tool("package").FILES
 
 
@@ -269,22 +279,23 @@ def test_same_expiry_mode_and_spec_context_invalidate_old_callbacks():
     run(lua, '''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local raidTimer=widgets.timers[1].fn
-      StatCompass.SetMode("mythic"); RunCallbacks()
-      assert(#widgets.timers==2)
+      StatCompass.SetCollapsed(true); RunCallbacks()
+      assert(#widgets.timers==1)
+      StatCompass.SetCollapsed(false)
       local renders=0
       local original=StatCompass.Render
       StatCompass.Render=function(snapshot) renders=renders+1; original(snapshot) end
       raidTimer()
       assert(renders==0)
       local mythicTimer=widgets.timers[2].fn
-      StatCompass.SetMode("raid"); RunCallbacks()
-      local oldSpecTimer=widgets.timers[3].fn
+      StatCompass.SetCollapsed(false); RunCallbacks()
+      local oldSpecTimer=widgets.timers[2].fn
       C_SpecializationInfo.GetSpecializationInfo=function() return 72,"Other" end
       Fire("PLAYER_SPECIALIZATION_CHANGED","player"); RunCallbacks()
       local before=renders
       mythicTimer()
       oldSpecTimer()
-      assert(renders==before and #widgets.timers==4)
+      assert(renders==before and #widgets.timers==3)
     ''')
 
 
@@ -299,7 +310,7 @@ def test_expiry_invalidates_target_when_spec_unreadable_or_changed(spec_result):
       StatCompass.Render=function(snapshot) renders=renders+1; original(snapshot) end
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       assert(renders==1 and #widgets.timers==1)
-      assert(StatCompass.rows[1].target.text:find("32.1%%")) -- cohort rating mean from Core
+      assert(StatCompass.rows[1].target.text=="Target 900") -- cohort rating mean from Core
       StatCompass.metadataHit.scripts.OnEnter(StatCompass.metadataHit)
       local expiry=widgets.timers[1].fn
       C_SpecializationInfo.GetSpecializationInfo=function() return SPEC_RESULT end
@@ -307,10 +318,10 @@ def test_expiry_invalidates_target_when_spec_unreadable_or_changed(spec_result):
       expiry()
       assert(renders==2, "expiry must refresh even without a readable matching spec")
       assert(StatCompass.expiryScheduled==nil and StatCompass.expiryAt==nil)
-      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
-      assert(StatCompass.rows[1].target.text==StatCompass.Text("unknown","enUS"))
-      assert(not StatCompass.rows[1].markerMin.shown and not StatCompass.rows[1].markerMax.shown)
-      assert(GameTooltip.text:find(StatCompass.Text("shareReferenceUnavailable","enUS"),1,true))
+      assert(StatCompass.status.text==StatCompass.Text("targetUnavailable","enUS"))
+      assert(StatCompass.rows[1].target.text=="")
+      assert(not StatCompass.rows[1].markerTarget.shown and not StatCompass.rows[1].band.shown)
+      assert(GameTooltip.text:find(StatCompass.Text("targetUnavailable","enUS"),1,true))
       assert(#widgets.timers==1 and #widgets.callbacks==0)
       expiry() -- consumed callback cannot render twice
       assert(renders==2 and #widgets.timers==1 and #widgets.callbacks==0)
@@ -318,19 +329,19 @@ def test_expiry_invalidates_target_when_spec_unreadable_or_changed(spec_result):
 
 
 def test_extreme_scientific_target_text_fits_measured_column():
-    manifest = synthetic_manifest()
-    for i, row in enumerate(manifest["cohorts"][0]["observations"]):
-        row["mastery"] = 1e-308 if i < 25 else 1e308
-    lua = runtime_with_manifest(manifest)
+    lua=load_runtime()
     run(lua, '''
-      Fire("PLAYER_LOGIN")
-      StatCompass.rows[3].max.GetStringWidth=function(self) return #self.text*9 end
-      CharacterFrame:Show(); PaperDollFrame:Show()
-      StatCompass.Render({shareComparison={mastery={currentShare=100,axisMaxShare=100,axisVerified=true,axisProvenance="synthetic cap",sourceStatus="verified",reference={minShare=1e-308,maxShare=100}}}})
-      local target=StatCompass.rows[3].max
-      assert(target:GetStringWidth()<=target.width)
-      assert(target.text:find("100.0%",1,true))
-      assert(not target.text:find("inf",1,true))
-      assert(StatCompass.rows[3].min.text:find("1.0e-308",1,true))
-      assert(StatCompass.rows[3].fill.width<=StatCompass.rows[3].track.width)
+      Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
+      local a=StatCompass
+      a.Layout(360,420)
+      a.Render({ratingTarget={mastery={currentRating=1e308,targetRating=1e308,lowRating=1e-308,highRating=1e308,
+        targetPercent=200,personal=false,sampleCount=30,sourceStatus="verified"}}})
+      local r=a.rows[3]
+      for _,font in ipairs({r.current,r.target,r.status}) do
+        assert(font:GetStringWidth()<=font:GetWidth())
+        assert(not font.text:find("inf",1,true))
+      end
+      assert(r.target.text:find("1.0e+308",1,true))
+      assert(r.bandTip:find("1.0e-308",1,true))
+      assert(r.fill.width<=r.track.width)
     ''')

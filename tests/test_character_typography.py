@@ -23,13 +23,14 @@ def test_host_font_uses_effective_scale_not_nominal_ten(physical, scale, host_sc
     run(lua, '''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local a=StatCompass
-      local path,size=a.rows[2].label:GetFont()
+      a.Render({ratingTarget={haste={currentRating=19,targetRating=638,lowRating=600,highRating=670,targetPercent=20,personal=true,sampleCount=30,sourceStatus="verified"}}})
+      local path,size=a.rows[2].current:GetFont()
       local wanted=10*hostLabel:GetEffectiveScale()/a.panel:GetEffectiveScale()
       -- Bounded to readable default and available row clearance.
       local d=math.max(0,math.min(1,(a.panel:GetHeight()-424)/326))
       assert(math.abs(size-math.max(20,math.min(21+3*d,wanted)))<0.01,"host apparent font size")
       assert(path~="external-font-do-not-copy")
-      local _,current=a.rows[2].current:GetFont(); assert(size==current)
+      assert(a.rows[2].label:GetStringHeight()<size)
       assert(a.rows[4].label:GetStringWidth()<=a.rows[4].label:GetWidth())
       assert(math.abs(a.panel:GetHeight()*a.panel:GetEffectiveScale()-424*CharacterFrame:GetEffectiveScale())<0.01)
       -- Cached region: repeated shown geometry does not enumerate the host again.
@@ -48,13 +49,15 @@ def test_fallback_is_modestly_larger_and_keeps_dense_geometry():
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local a=StatCompass
       a.Layout(450,424)
-      local _,size=a.rows[1].label:GetFont()
+      local _,size=a.rows[1].current:GetFont()
       assert(size==20,"fallback larger than old 18")
-      assert(-a.rows[1].label.point[5]>=-a.headers.target.point[5]+a.headers.target:GetStringHeight()+4)
-      assert(a.rows[1].track.point[5]==a.rows[1].label.point[5]-28)
+      assert(-a.rows[1].label.point[5]>=-a.spec.point[5]+a.spec:GetStringHeight()+4)
+      local row=a.rows[1]
+      local inkTop=-row.track.point[5]+(row.track.height-row.outlineTarget.height)/2
+      assert(inkTop>=-row.current.point[5]+row.current:GetStringHeight()+2-0.001)
       for _,row in ipairs(a.rows) do
         assert(row.label:GetStringHeight()<=21)
-        for _,f in ipairs({row.label,row.min,row.target,row.max}) do
+        for _,f in ipairs({row.label,row.current,row.target,row.status}) do
           assert(f:GetStringWidth()<=f:GetWidth(),f.text)
         end
       end
@@ -78,24 +81,23 @@ def test_largest_host_size_keeps_markers_german_labels_and_source_clear(height):
     run(lua, f'''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local a=StatCompass; a.Layout(450,{height})
-      local item={{currentRating=999999,axisMaxRating=1e308,axisVerified=true,axisProvenance="synthetic",
+      local item={{currentRating=999999,targetRating=1e308,lowRating=1e-308,highRating=1e308,targetPercent=200,personal=false,
         sampleCount=1000000,sourceStatus="verified",reference={{minRating=1e-308,meanRating=1e308,maxRating=1e308}}}}
       a.Render({{specID=268,specName="Braumeister",target={{observedAt=1799999000}},
-        ratingComparison={{crit=item,haste=item,mastery=item,versatility=item}}}})
+        ratingTarget={{crit=item,haste=item,mastery=item,versatility=item}}}})
       for _,r in ipairs(a.rows) do
         local headingBottom=-r.label.point[5]+r.label:GetStringHeight()
         local trackTop=-r.track.point[5]
-        assert(trackTop+(r.track.height-r.markerCurrent.height)/2>=headingBottom+2)
-        assert(trackTop+(r.track.height-r.markerMin.height)/2>=headingBottom+2)
-        assert(-r.min.point[5]+r.min:GetStringHeight()<=-r.label.point[5]+r.hoverFrame.height+2)
-        for _,font in ipairs({{r.label,r.current,r.min,r.target,r.max,r.axisStatus}}) do
+        assert(trackTop+(r.track.height-r.outlineTarget.height)/2>=headingBottom+2)
+        assert(-r.status.point[5]+r.status:GetStringHeight()<=-r.label.point[5]+r.hoverFrame.height+2)
+        for _,font in ipairs({{r.label,r.current,r.target,r.status}}) do
           assert(font:GetStringWidth()<=font:GetWidth(),font.text)
         end
       end
-      for _,font in ipairs({{a.title,a.spec,a.status,a.headers.current,a.headers.target}}) do
+      for _,font in ipairs({{a.title,a.spec,a.status}}) do
         assert(font:GetStringWidth()<=font:GetWidth(),font.text)
       end
-      assert(-a.status.point[5]+a.status:GetStringHeight() < -a.buttons[3].point[5])
+      assert(-a.status.point[5]+a.status:GetStringHeight() < -a.buttons[1].point[5])
     ''')
 
 
@@ -104,5 +106,5 @@ def test_unreadable_host_has_readable_fallback(value):
     lua = load_runtime('EUI_CharSheet_StatsPanel='+value)
     run(lua, '''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
-      local _,size=StatCompass.rows[1].label:GetFont(); assert(size==20)
+      local _,size=StatCompass.rows[1].current:GetFont(); assert(size==20)
     ''')

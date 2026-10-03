@@ -37,7 +37,7 @@ def test_bar_geometry_repaints_without_stat_reads():
       GetHaste=function() reads=reads+1; return 6.8 end
       CharacterFrame:SetBounds(200,600,30,780)
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
-      StatCompass.Render({shareComparison={haste={currentShare=68,axisMaxShare=100,axisVerified=true,axisProvenance="synthetic scale",sourceStatus="verified"}}})
+      StatCompass.Render({ratingTarget={haste={currentRating=68,targetRating=68,lowRating=68,highRating=68,targetPercent=20,personal=true,sampleCount=30,axisMaxShare=100,axisVerified=true,axisProvenance="synthetic scale",sourceStatus="verified"}}})
       local row=StatCompass.rows[2]
       local fraction=row.fill.width/row.barWidth
       local firstWidth=row.barWidth
@@ -46,14 +46,14 @@ def test_bar_geometry_repaints_without_stat_reads():
       assert(StatCompass.visible and reads==1)
       assert(row.barWidth~=firstWidth)
       assert(math.abs(row.fill.width/row.barWidth-fraction)<0.001)
-      assert(math.abs((row.markerCurrent.point[4]-row.markerInset)/(row.barWidth-2*row.markerInset)-fraction)<0.001)
+      assert(math.abs((row.markerTarget.point[4]-row.markerInset)/(row.barWidth-2*row.markerInset)-fraction)<0.001)
       CharacterFrame:SetBounds(200,600,30,560)
       assert(StatCompass.visible and reads==1)
       assert(math.abs(row.fill.width/row.barWidth-fraction)<0.001)
     ''')
 
 
-def test_small_stat_has_useful_axis_and_zero_fallback():
+def test_small_stat_keeps_fixed_axis_and_unknown_fill_hidden():
     lua = runtime_with_data()
     run(lua, '''
       GetHaste=function() return 6.8 end
@@ -63,9 +63,9 @@ def test_small_stat_has_useful_axis_and_zero_fallback():
       GetVersatilityBonus=function() return 0 end
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local haste=StatCompass.rows[2]
-      assert(haste.axis==30 and not haste.fill.shown)       -- 700 rating cohort, +10%, rounded to 50
+      assert(haste.axis==2000 and not haste.fill.shown)
       local zero=StatCompass.rows[4]
-      assert(zero.axis==20 and not zero.markerCurrent.shown)
+      assert(zero.axis==2000 and not zero.fill.shown)
     ''')
 
 
@@ -73,14 +73,12 @@ def test_coincident_ticks_have_separate_vertical_extent():
     lua = runtime_with_data()
     run(lua, '''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
-      StatCompass.Render({shareComparison={haste={currentShare=50,axisMaxShare=100,axisVerified=true,axisProvenance="synthetic cap",sourceStatus="verified",reference={minShare=50,meanShare=50,maxShare=50}}}})
+      StatCompass.Render({ratingTarget={haste={currentRating=50,targetRating=50,lowRating=50,highRating=50,
+        targetPercent=20,personal=true,sampleCount=30,sourceStatus="verified"}}})
       local row=StatCompass.rows[2]
-      assert(row.markerMin.point[4]==row.markerMax.point[4])
-      assert(row.markerMin.point[1]==row.markerMax.point[1])
-      assert(row.markerMin.height==row.markerCurrent.height)
-      assert(row.markerMax.height==row.markerCurrent.height)
-      assert(row.hit.min~=row.hit.mean and row.hit.mean~=row.hit.max)
-      assert(row.min.text:find("Min") and row.max.text:find("Max"))
+      assert(row.markerTarget.shown and row.bandCue.shown)
+      assert(row.hit.current~=row.hit.target)
+      assert(row.current.text=="50" and row.target.text=="Target 50")
     ''')
 
 
@@ -94,22 +92,22 @@ def test_german_and_english_text_fit_and_header_alignment_at_minimum_width():
           local a=StatCompass
           assert(a.visible)
           local p=a.panel
-          assert(a.headers.current.point[4]>=a.rows[1].current.point[4])
-          assert(a.headers.target.point[4]<=a.rows[1].track.point[4]+8)
-          for _,font in ipairs({a.title,a.spec,a.status,a.headers.current,a.headers.target}) do
+          assert(a.rows[1].label.point[4]==a.rows[1].current.point[4])
+          assert(a.rows[1].target.point[4]>a.rows[1].current.point[4])
+          for _,font in ipairs({a.title,a.spec,a.status}) do
             assert(font:GetStringWidth()<=font.width, font.text)
           end
           for _,button in ipairs(a.buttons) do
             assert(button.caption:GetStringWidth()<=button.width-12, button.caption.text)
           end
           for i,row in ipairs(a.rows) do
-            for _,font in ipairs({row.label,row.current,row.min,row.max}) do
+            for _,font in ipairs({row.label,row.current,row.status,row.target}) do
               assert(font:GetStringWidth()<=font.width, font.text)
             end
           end
           local last=a.rows[4]
-          assert(-last.min.point[5]+last.min:GetStringHeight() <= -a.status.point[5]-8)
-          assert(-a.status.point[5]+a.status:GetStringHeight() <= -a.buttons[3].point[5]-8)
+          assert(-last.status.point[5]+last.status:GetStringHeight() <= -a.status.point[5]-8)
+          assert(-a.status.point[5]+a.status:GetStringHeight() <= -a.buttons[1].point[5]-8)
           assert(p.base.layer=="BACKGROUND" and p.bg.layer=="BACKGROUND")
           assert(p.base.sublevel<p.bg.sublevel)
         ''')

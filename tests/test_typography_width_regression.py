@@ -24,10 +24,10 @@ def runtime(locale="deDE", fallback=False):
 
 
 CHECK = '''
-  local fonts={a.title,a.spec,a.status,a.headers.current,a.headers.target}
+  local fonts={a.title,a.spec,a.status}
   for _,b in ipairs(a.buttons) do table.insert(fonts,b.caption) end
   for _,r in ipairs(a.rows) do
-    for _,f in ipairs({r.label,r.current,r.min,r.target,r.max,r.axisStatus}) do
+    for _,f in ipairs({r.label,r.current,r.target,r.status}) do
       table.insert(fonts,f)
     end
   end
@@ -45,9 +45,9 @@ def test_actual_clamp_narrow_german_large_host():
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local a=StatCompass
       assert(a.panel:GetWidth()==360 and a.panel:GetHeight()==750)
-      a.Render({specID=105,specName="Wiederherstellung"})
+      a.Render({specID=105,specName="Wiederherstellung",ratingTarget={haste={currentRating=19,targetRating=638,lowRating=600,highRating=670,targetPercent=20,personal=true,sampleCount=30,sourceStatus="verified"}}})
     ''' + CHECK + '''
-      local _,size=a.rows[2].label:GetFont(); assert(size==24,"keep enlarged short labels")
+      local _,size=a.rows[2].current:GetFont(); assert(size==24,"keep enlarged short labels")
       PaperDollFrame:Hide(); local count=widthReads
       a.Render({specID=105,specName="Hidden"})
       CharacterFrame:SetScale(1.1)
@@ -67,12 +67,12 @@ def test_width_matrix_dynamic_text_and_enlarged_targets(locale, skin, fallback):
         for _,height in ipairs({420,424,430,440,530,750,1080}) do
           a.Layout(width,height)
           for _,name in ipairs({"Wiederherstellung", "Very long dynamic specialization name", "X"}) do
-            a.Render({specID=105,specName=name})
+            a.Render({specID=105,specName=name,ratingTarget={haste={currentRating=19,targetRating=638,lowRating=600,highRating=670,targetPercent=20,personal=true,sampleCount=30,sourceStatus="verified"}}})
     ''' % skin + CHECK + '''
           end
           local specBottom=-a.spec.point[5]+a.spec:GetStringHeight()
-          assert(-a.buttons[1].point[5]>=specBottom+3,"header padding")
-          local _,size=a.rows[2].label:GetFont()
+          assert(-a.rows[1].label.point[5]>=specBottom+3,"header padding")
+          local _,size=a.rows[2].current:GetFont()
           assert(size>=20,"short labels retain enlargement")
         end
       end

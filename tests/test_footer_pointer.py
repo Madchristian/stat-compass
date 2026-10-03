@@ -49,18 +49,18 @@ end
 
 @pytest.mark.parametrize("height", [420, 530, 750, 900, 1080])
 @pytest.mark.parametrize("earlier_first", [True, False])
-@pytest.mark.parametrize("index", [3, 4, 5])
+@pytest.mark.parametrize("index", [1, 2, 3])
 def test_footer_pointer_reaches_each_action(height, earlier_first, index):
     lua = load_runtime(POINTER)
     run(lua, f'''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local a=StatCompass
       a.panel:SetSize(450,{height}); a.Layout(450,{height})
-      a.SetSkin({index}==3 and "flat" or "default"); a.SetMode("mythic")
+      a.SetSkin({index}==1 and "flat" or "default"); a.SetMode("mythic")
       local target=PointerClickCenter(a.buttons[{index}],{str(earlier_first).lower()})
       assert(target==a.buttons[{index}],"footer pointer intercepted by another mouse-enabled frame")
-      assert(a.settings.skin==({index}==4 and "flat" or "default"),"skin action not delivered")
-      if {index}==5 then assert(a.settings.mode=="raid","reset action not delivered") end
+      assert(a.settings.skin==({index}==2 and "flat" or "default"),"skin action not delivered")
+      if {index}==3 then assert(a.settings.mode=="mythic","reset action not delivered") end
     ''')
 
 
@@ -72,13 +72,13 @@ def test_value_hit_rectangles_end_before_status(height):
       local a=StatCompass; a.Layout(450,{height})
       for i,row in ipairs(a.rows) do
         assert(not row.hoverFrame.mouseEnabled)
-        local hit=row.hit.mean
+        local hit=row.hit.current
         local bottom=-hit.point[5]+hit:GetHeight()
-        assert(bottom>=-row.target.point[5]+row.target:GetStringHeight()-0.001,"endpoint lacks hover")
+        assert(bottom>=-row.current.point[5]+row.current:GetStringHeight()-0.001,"endpoint lacks hover")
         local nextTop=a.rows[i+1] and -a.rows[i+1].label.point[5] or -a.status.point[5]
         assert(bottom<=nextTop-2+0.001,"value target extends into next row/status/footer")
       end
-      local last=a.rows[4]; local f=last.hit.mean; local s=f:GetEffectiveScale()
+      local last=a.rows[4]; local f=last.hit.current; local s=f:GetEffectiveScale()
       local x=(f:GetLeft()+f:GetRight())*s/2
       local y=(f:GetTop()+f:GetBottom())*s/2
       assert(PointerTarget(x,y,true)==f,"last endpoint cannot be hovered")
@@ -91,7 +91,7 @@ def test_pointer_negative_control_overlay_consumes_click_without_handler():
     lua = load_runtime(POINTER)
     run(lua, '''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
-      local a=StatCompass; local b=a.buttons[4]
+      local a=StatCompass; local b=a.buttons[2]
       local cover=CreateFrame("Frame",nil,a.panel)
       cover:SetPoint(unpack(b.point)); cover:SetSize(b:GetWidth(),b:GetHeight())
       cover:EnableMouse(true); cover:SetFrameLevel(b:GetFrameLevel()+1)

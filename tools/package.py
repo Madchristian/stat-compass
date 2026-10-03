@@ -13,6 +13,7 @@ FILES = (
     "StatCompass/Core.lua",
     "StatCompass/UI.lua",
     "StatCompass/Controls.lua",
+    "StatCompass/icon.tga",
     "StatCompass/LICENSE.txt",
     "StatCompass/NOTICE.txt",
     "StatCompass/README.txt",

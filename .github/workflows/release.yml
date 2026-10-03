@@ -110,7 +110,7 @@ jobs:
               sys.exit(f"expected one package, found {zips}")
           names = zipfile.ZipFile(zips[0]).namelist()
           tops = {n.split("/", 1)[0] for n in names}
-          required = {f"StatCompass/{f}" for f in ("StatCompass.toc", "Core.lua", "Data.lua", "UI.lua", "Locales.lua", "Controls.lua")}
+          required = {f"StatCompass/{f}" for f in ("StatCompass.toc", "Core.lua", "Data.lua", "UI.lua", "Locales.lua", "Controls.lua", "icon.tga")}
           missing = required - set(names)
           stray = [n for n in names if n.split("/")[1] in ("tools", "tests", "docs", ".github")]
           data = zipfile.ZipFile(zips[0]).getinfo("StatCompass/Data.lua").file_size if not missing else 0

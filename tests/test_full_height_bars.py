@@ -6,10 +6,10 @@ from tests.test_followup import runtime_with_data
 def test_exact_cohort_extrema_and_large_mastery():
     lua = runtime_with_data()
     run(lua, '''
-      local rows=StatCompass.releaseData.cohorts[71].raid.observations
+      local rows=StatCompass.releaseData.cohorts[71].mythic.observations
       rows[1].crit=4; rows[50].crit=81
       rows[1].mastery=150; rows[50].mastery=320
-      local target=StatCompass.GetTarget(71,"raid")
+      local target=StatCompass.GetTarget(71,"mythic")
       assert(target.range.crit.min==4 and target.range.crit.max==81)
       assert(target.range.mastery.min==150 and target.range.mastery.max==320)
       assert(target.sample==50)
@@ -28,10 +28,10 @@ def test_full_height_and_four_native_bars_in_both_skins():
       assert(#StatCompass.rows==4)
       for i=1,4 do
         local r=StatCompass.rows[i]
-        assert(r.track and r.fill and r.markerCurrent and r.markerMin and r.markerMax)
-        assert(r.min.text:find("%d") and r.max.text:find("%d"))          -- cohort rating range from Core
+        assert(r.track and r.fill and r.markerTarget and r.band)
+        assert(r.target.text:find("%d"))          -- cohort rating range from Core
         assert(r.current.text=="Unknown" and not r.fill.shown)            -- no own rating in this mock
-        assert(not r.markerCurrent.shown and r.markerMin.shown and r.markerMax.shown)
+        assert(not r.fill.shown and r.markerTarget.shown)
         assert(r.track.width>200)
       end
       assert(p.bg.color[4]>=0.97)
@@ -40,7 +40,7 @@ def test_full_height_and_four_native_bars_in_both_skins():
       assert(p.bg.color[4]>=0.97 and p.base.color[4]==1 and p.borders[1].width>=2)
       StatCompass.SetSkin("default")
       assert(p.bg.color[4]>=0.97 and p.base.color[4]==1 and p.borders[1].width>=2)
-      assert(StatCompass.buttons[1].height>=30 and StatCompass.buttons[5].height>=30)
+      assert(StatCompass.buttons[1].height>=30 and StatCompass.buttons[3].height>=30)
     ''')
 
 
@@ -51,29 +51,29 @@ def test_unknown_current_and_unavailable_cohort_hide_marks():
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       for i=1,4 do
         local r=StatCompass.rows[i]
-        assert(not r.markerMin.shown and not r.markerMax.shown)
-        assert(r.min.text==StatCompass.Text("unknown","enUS"))
-        assert(r.max.text==StatCompass.Text("unknown","enUS"))
+        assert(not r.markerTarget.shown)
+        assert(r.target.text=="")
+        assert(r.status.text==StatCompass.Text("targetUnavailable","enUS"))
       end
       local r=StatCompass.rows[2]
-      assert(r.current.text==StatCompass.Text("unknown","enUS"))
-      assert(not r.fill.shown and not r.markerCurrent.shown)
+      assert(r.current.text=="Unknown")
+      assert(not r.fill.shown and not r.markerTarget.shown)
     ''')
 
 
 def test_endpoint_coincidence_and_current_outside_cohort_are_numbered():
     lua = runtime_with_data()
     run(lua, '''
-      local rows=StatCompass.releaseData.cohorts[71].raid.observations
+      local rows=StatCompass.releaseData.cohorts[71].mythic.observations
       for i=1,50 do rows[i].crit=25 end
       GetCritChance=function() return 90 end
       GetRangedCritChance=function() return 90 end
       GetSpellCritChance=function() return 90 end
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local r=StatCompass.rows[1]
-      assert(r.min.text:find("32.1%%") and r.max.text:find("32.1%%"))          -- coincident cohort endpoints
+      assert(r.target.text=="Target 900" and r.bandCue.shown)          -- coincident cohort endpoints
       assert(r.current.text=="Unknown")
-      assert(r.markerMin.shown and r.markerMax.shown and not r.markerCurrent.shown)
+      assert(r.markerTarget.shown and not r.fill.shown)
     ''')
 
 
@@ -102,7 +102,7 @@ def test_movement_resize_scale_and_viewport_reflow_without_stat_reads():
       UIParent:SetScale(0.9)
       matched()
       assert(reads==1)
-      assert(StatCompass.headers.target.text=="Sekundärwert-Anteile")
+      assert(StatCompass.rows[2].label.text=="Tempo")
       UIParent.right=740
       UIParent:SetSize(740,1080)
       matched()
@@ -126,20 +126,20 @@ def test_unfit_viewport_hides_panel_and_no_read():
 def test_large_finite_axis_and_marker_bounds():
     lua = runtime_with_data()
     run(lua, '''
-      local rows=StatCompass.releaseData.cohorts[71].raid.observations
+      local rows=StatCompass.releaseData.cohorts[71].mythic.observations
       rows[1].mastery=1e-308; rows[50].mastery=1e308
       GetMasteryEffect=function() return 1e308 end
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       local r=StatCompass.rows[3]
-      assert(r.axis==35)                                    -- rating axis, unaffected by extreme percentages
+      assert(r.axis==2000) -- fixed rating axis, unaffected by extreme percentages
       assert(r.current.text=="Unknown")
-      assert(r.min.text:find("28.6%%") and r.max.text:find("28.6%%"))
+      assert(r.target.text=="Target 800")
       assert(not r.fill.shown)
       for i=1,4 do
         local row=StatCompass.rows[i]
         assert(row.label:GetStringWidth()<=row.label.width)
         assert(row.current:GetStringWidth()<=row.current.width)
-        assert(row.min:GetStringWidth()<=row.min.width)
-        assert(row.max:GetStringWidth()<=row.max.width)
+        assert(row.target:GetStringWidth()<=row.target.width)
+        assert(row.status:GetStringWidth()<=row.status.width)
       end
     ''')

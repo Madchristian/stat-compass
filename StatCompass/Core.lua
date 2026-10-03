@@ -32,9 +32,10 @@ end
 local MODES = {raid=true, mythic=true}
 local SKINS = {default=true, flat=true}
 function A.SanitizeSettings(raw)
-  local result = {mode="raid", skin="default", minimapShown=true, minimapAngle=225}
+  local result = {mode="mythic", skin="default", minimapShown=true, minimapAngle=225, collapsed=false}
   if not public(raw) or type(raw) ~= "table" then return result end
-  if literal(raw.mode, MODES) then result.mode = raw.mode end
+
+  if public(raw.collapsed) and type(raw.collapsed) == "boolean" then result.collapsed = raw.collapsed end
   if literal(raw.skin, SKINS) then result.skin = raw.skin end
   if public(raw.minimapShown) and type(raw.minimapShown) == "boolean" then result.minimapShown = raw.minimapShown end
   if finite(raw.minimapAngle) then result.minimapAngle = raw.minimapAngle % 360 end
@@ -44,6 +45,13 @@ function A.SaveSettings(raw)
   A.settings = A.SanitizeSettings(raw)
   StatCompassDB = A.SanitizeSettings(A.settings)
   if A.RefreshControls then A.RefreshControls() end
+  if A.SyncVisibility then A.SyncVisibility() end
+end
+function A.SetCollapsed(collapsed)
+  if not public(collapsed) or type(collapsed) ~= "boolean" then return end
+  local settings = A.SanitizeSettings(A.settings)
+  settings.collapsed = collapsed
+  A.SaveSettings(settings)
 end
 function A.SetMinimapShown(shown)
   if not public(shown) or type(shown) ~= "boolean" then return end
@@ -58,7 +66,7 @@ function A.SetMinimapAngle(angle)
   A.SaveSettings(settings)
 end
 function A.ResetPresentation()
-  A.SaveSettings({mode=A.settings.mode})
+  A.SaveSettings({collapsed=A.SanitizeSettings(A.settings).collapsed})
   if A.visible and A.ApplySkin then A.ApplySkin() end
 end
 function A.ResetSettings()
@@ -415,7 +423,7 @@ end
 function A.Snapshot()
   local specID, specName = A.ReadSpecInfo()
   local heroID = A.ReadHeroTree()
-  local target = A.GetTarget(specID, A.settings.mode, heroID)
+  local target = A.GetTarget(specID, "mythic", heroID)
   local ratings, current = A.ReadRatings(), A.ReadStats()
   return {specID=specID, specName=specName, heroTreeID=heroID, current=current, target=target,
     ratingComparison=A.RatingComparison(target, ratings), shareComparison=A.ShareComparison(target, ratings),
@@ -485,7 +493,7 @@ function A.SetVisible(visible)
   end
 end
 function A.SetMode(mode)
-  if not literal(mode, MODES) then return end
+  if not public(mode) or mode ~= "mythic" then return end
   if A.settings.mode == mode then return end
   local settings = A.SanitizeSettings(A.settings)
   settings.mode = mode

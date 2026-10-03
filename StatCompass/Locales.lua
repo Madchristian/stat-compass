@@ -1,6 +1,7 @@
 StatCompass = StatCompass or {}
 StatCompass.locale = {
   enUS = {
+    preCombat = "Pre-combat snapshot",
     target = "Target", targetUnavailable = "No verified target",
     priorityCrit = "Crit", priorityUnavailable = "Priority unavailable",
     priorityHelp = "Ordered by how much of their secondary budget top players put into each stat. Not a simulated stat weight.",
@@ -47,6 +48,7 @@ StatCompass.locale = {
     glowCloseness = "Glow shows closeness to the cohort average within the observed spread.",
   },
   deDE = {
+    preCombat = "Stand vor Kampf",
     target = "Ziel", targetUnavailable = "Kein geprüftes Ziel",
     priorityCrit = "Crit", priorityUnavailable = "Prio nicht verfügbar",
     priorityHelp = "Reihenfolge danach, wie viel ihres Sekundär-Budgets die Top-Spieler in den Wert stecken. Kein simulierter Wert.",

@@ -340,6 +340,8 @@ function A.Render(snapshot)
   if not A.visible or not A.panel then return end
   colorSpecialization()
   snapshot=publicTable(snapshot) or {}
+  local preCombat=rawget(snapshot,"preCombat")
+  A.title:SetText(T("title") .. (A.IsPublic(preCombat) and preCombat==true and (" - " .. T("preCombat")) or ""))
   local target = publicTable(rawget(snapshot,"target"))
   if usableNumber(rawget(snapshot,"specID")) then
     A.spec:SetText(displayText(rawget(snapshot,"specName")))
@@ -922,13 +924,41 @@ local function attach()
   end
   sync()
 end
+local function syncCombat(reason)
+  local active = true
+  if A.IsPublic(InCombatLockdown) and type(InCombatLockdown) == "function" then
+    local ok, value = pcall(InCombatLockdown)
+    if A.IsPublic(ok) and ok == true and A.IsPublic(value) and value == false then active = false end
+  end
+  -- Enter the fail-closed state before queueing, but invalidate world context
+  -- before leaving it: the exit flush must consume the invalidation only once.
+  if active then A.SetCombat(true) end
+  if reason then A.QueueRefresh(reason) end
+  if not active then A.SetCombat(false) end
+end
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
+events:RegisterEvent("PLAYER_REGEN_DISABLED")
+events:RegisterEvent("PLAYER_REGEN_ENABLED")
+events:RegisterEvent("TRAIT_CONFIG_UPDATED")
+events:RegisterEvent("PLAYER_ENTERING_WORLD")
 for _,event in ipairs({"COMBAT_RATING_UPDATE", "PLAYER_EQUIPMENT_CHANGED", "MASTERY_UPDATE", "UNIT_SPELL_HASTE", "UNIT_STATS", "UNIT_AURA", "PLAYER_SPECIALIZATION_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_TALENT_UPDATE", "UNIT_LEVEL"}) do
   events:RegisterEvent(event)
 end
 events:SetScript("OnEvent", function(_, event, arg1)
+  if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
+    A.SetCombat(event == "PLAYER_REGEN_DISABLED")
+    return
+  end
+  if event == "PLAYER_ENTERING_WORLD" then
+    syncCombat(event)
+    attach()
+    return
+  end
+  if event == "ADDON_LOADED" or event == "PLAYER_LOGIN" then
+    syncCombat()
+  end
   if event == "ADDON_LOADED" then
     if A.IsPublic(arg1) and arg1 == "StatCompass" then
       A.SaveSettings(StatCompassDB)
@@ -946,7 +976,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
   if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "UNIT_SPELL_HASTE" or event == "UNIT_STATS" or event == "UNIT_AURA" or event == "UNIT_LEVEL" then
     if not A.IsPublic(arg1) or arg1 ~= "player" then return end
   end
-  A.QueueRefresh()
+  A.QueueRefresh(event)
 end)
 A.Attach = attach
 A.EventFrame = events

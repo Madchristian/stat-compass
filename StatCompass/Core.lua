@@ -172,7 +172,15 @@ local function validateCohort(cohort, specID, mode, interface, clientBuild, leve
   end
   return latestRow == cohort.observedAt
 end
+local combat = false
+local function inCombat()
+  if combat then return true end
+  -- Missing API is tolerated by offline tools; unreadable live state fails closed.
+  if public(InCombatLockdown) and type(InCombatLockdown) == "nil" then return false end
+  return call(InCombatLockdown) ~= false
+end
 function A.ValidateDataset(data, interface, clientBuild, level, now)
+  if inCombat() then return false end
   if not public(data) or type(data) ~= "table" then return false end
   if not same(data.schema,3) or not integer(data.interface, 1, 999999) or not integer(data.clientBuild,1,9999999) or not integer(data.level, 1, 1000) then return false end
   if interface and not same(data.interface,interface) then return false end
@@ -212,24 +220,121 @@ function A.ValidateDataset(data, interface, clientBuild, level, now)
   end
   return latestCohort == data.observedAt
 end
-function A.ReadHeroTree()
-  local id = call(safeFunction(C_ClassTalents, "GetActiveHeroTalentSpec"))
-  if integer(id, 1, 1000000) then return id end
-  return nil
+local function readHeroContext()
+  if public(C_ClassTalents) and type(C_ClassTalents) == "nil" then return nil, true end
+  local fn = safeFunction(C_ClassTalents, "GetActiveHeroTalentSpec")
+  if not fn then return nil, false end
+  local ok, id = pcall(fn)
+  if not public(ok) or ok ~= true or not public(id) then return nil, false end
+  if integer(id, 1, 1000000) then return id, true end
+  return nil, id == nil
 end
-function A.GetTarget(specID, mode, heroID)
-  if not integer(specID,1,1000000) or not literal(mode,MODES) then return nil end
+function A.ReadHeroTree()
+  local id = readHeroContext()
+  return id
+end
+local targetCache
+-- Lua 5.1 tables are mutable. Keep an exact identity/value ledger, not a hash or
+-- identity-only validation memo. Audit it only out of combat before reusing work.
+local function datasetLedger(data)
+  local ledger, seen = {}, {}
+  local function visit(t)
+    if seen[t] then return true end
+    if not public(t) or getmetatable(t) ~= nil then return false end
+    seen[t] = true
+    local entry = {source=t, values={}, count=0}
+    ledger[#ledger+1] = entry
+    for k,v in pairs(t) do
+      if not public(k) or not public(v) then return false end
+      entry.values[k], entry.count = v, entry.count + 1
+      if type(v) == "table" and not visit(v) then return false end
+    end
+    return true
+  end
+  if visit(data) then return ledger end
+end
+local function unchanged(ledger)
+  if not ledger then return false end
+  for i=1,#ledger do
+    local entry, count = ledger[i], 0
+    if not public(entry.source) or getmetatable(entry.source) ~= nil then return false end
+    for k,v in pairs(entry.source) do
+      if not public(k) or not public(v) or not rawequal(v, entry.values[k]) then return false end
+      count = count + 1
+    end
+    if count ~= entry.count then return false end
+  end
+  return true
+end
+local function copy(value)
+  if type(value) ~= "table" then return value end
+  local result = {}
+  for k,v in pairs(value) do result[k] = copy(v) end
+  return result
+end
+local HEADER = {"schema", "interface", "clientBuild", "level", "collectedAt", "observedAt", "expiresAt",
+  "sourceURL", "rawSHA256", "permission", "cohorts", "heroCohorts"}
+local function tableField(t, key)
+  if not public(t) or type(t) ~= "table" then return nil end
+  return rawget(t, key)
+end
+local function selectedCohort(data, specID, mode, heroID)
+  local cohort
+  if integer(heroID,1,1000000) then
+    local heroes = tableField(tableField(data,"heroCohorts"),specID)
+    cohort = tableField(tableField(heroes,heroID),mode)
+  end
+  if not public(cohort) then return nil end
+  if cohort == nil then cohort = tableField(tableField(tableField(data,"cohorts"),specID),mode) end
+  return cohort
+end
+local function cacheMatches(data, specID, mode, heroID, interface, clientBuild, level, now)
+  local c = targetCache
+  if not c or not c.ledger or not public(data) or data ~= c.data or specID ~= c.specID or mode ~= c.mode
+      or heroID ~= c.heroID or interface ~= c.interface or clientBuild ~= c.clientBuild
+      or level ~= c.level or not integer(now,1000000000,9999999999)
+      or now < c.collectedAt or now >= c.expiresAt then return false end
+  for _,key in ipairs(HEADER) do
+    if not same(rawget(data,key), c.header[key]) then return false end
+  end
+  if not same(selectedCohort(data,specID,mode,heroID),c.cohort) then return false end
+  return true
+end
+-- Shared bounded context reads for both target paths. No dataset traversal here.
+local function readTargetContext(specID, mode, heroID)
+  if not integer(specID,1,1000000) or not literal(mode,MODES) or not public(heroID) then
+    targetCache = nil; return nil
+  end
+  local function unavailable() targetCache = nil; return nil end
   local data = A.releaseData
   -- GetBuildInfo returns numeric client build as a string in result 2 and interface in result 4.
   local fn = GetBuildInfo
-  if not public(fn) or type(fn) ~= "function" then return nil end
+  if not public(fn) or type(fn) ~= "function" then return unavailable() end
   local ok, _, buildText, _, interface = pcall(fn)
-  if not public(ok) or ok ~= true or not integer(interface, 100000, 999999) then return nil end
-  if not public(buildText) or type(buildText) ~= "string" or not string.match(buildText,"^%d+$") then return nil end
+  if not public(ok) or ok ~= true or not integer(interface, 100000, 999999) then return unavailable() end
+  if not public(buildText) or type(buildText) ~= "string" or not string.match(buildText,"^%d+$") then return unavailable() end
   local clientBuild = tonumber(buildText)
-  if not integer(clientBuild,1,9999999) then return nil end
+  if not integer(clientBuild,1,9999999) then return unavailable() end
   local level = call(UnitLevel, "player")
   local now = call(GetServerTime)
+  return true, data, interface, clientBuild, level, now
+end
+-- Combat dispatch uses this cache-only path, never the public aggregation entry.
+local function cachedTarget(specID, mode, heroID)
+  local ok, data, interface, clientBuild, level, now = readTargetContext(specID, mode, heroID)
+  if ok and cacheMatches(data, specID, mode, heroID, interface, clientBuild, level, now) then
+    return copy(targetCache.target)
+  end
+  targetCache = nil
+  return nil
+end
+function A.GetTarget(specID, mode, heroID)
+  if inCombat() then return cachedTarget(specID, mode, heroID) end
+  local ok, data, interface, clientBuild, level, now = readTargetContext(specID, mode, heroID)
+  if not ok then return nil end
+  if cacheMatches(data, specID, mode, heroID, interface, clientBuild, level, now)
+      and unchanged(targetCache.ledger) then return copy(targetCache.target) end
+  targetCache = nil
   if not integer(level, 1, 1000) or not A.ValidateDataset(data, interface, clientBuild, level, now) then return nil end
   -- a cohort of the player's own hero talent tree wins; otherwise the whole specialization
   local heroes = integer(heroID, 1, 1000000) and data.heroCohorts and data.heroCohorts[specID]
@@ -320,6 +425,11 @@ function A.GetTarget(specID, mode, heroID)
   result.sourceURL = data.sourceURL
   result.rawSHA256 = data.rawSHA256
   result.permission = data.permission
+  local header = {}
+  for _,key in ipairs(HEADER) do header[key] = data[key] end
+  targetCache = {data=data, cohort=cohort, ledger=datasetLedger(data), header=header, specID=specID, mode=mode, heroID=heroID,
+    interface=interface, clientBuild=clientBuild, level=level,
+    collectedAt=data.collectedAt, expiresAt=data.expiresAt, target=copy(result)}
   return result
 end
 -- Combat rating IDs as the Character window uses them: crit is the best of melee/ranged/spell,
@@ -421,25 +531,94 @@ function A.RatingTargets(target, ratings)
   result.totals = {targetRating=total, ownRating=budget}
   return result
 end
-function A.Snapshot()
+local lastSnapshot, lastRatings
+local readableSnapshot, readableRatings, readableCache
+local function readContext()
   local specID, specName = A.ReadSpecInfo()
-  local heroID = A.ReadHeroTree()
-  local target = A.GetTarget(specID, "mythic", heroID)
+  local heroID, readable = readHeroContext()
+  local target
+  if readable == false then targetCache = nil
+  elseif inCombat() then target = cachedTarget(specID, A.settings.mode, heroID)
+  else target = A.GetTarget(specID, A.settings.mode, heroID) end
+  return specID, specName, heroID, target
+end
+local function withoutTarget(snapshot, ratings)
+  local result = copy(snapshot)
+  result.target = nil
+  result.ratingComparison = A.RatingComparison(nil, ratings)
+  result.shareComparison = A.ShareComparison(nil, ratings)
+  result.ratingTarget = A.RatingTargets(nil, ratings)
+  return result
+end
+function A.Snapshot()
+  if inCombat() then
+    -- Only bounded safety checks are allowed; never sample current stats here.
+    local _, _, _, target = readContext()
+    if not readableSnapshot then
+      local unknown = withoutTarget({current={}}, nil)
+      unknown.preCombat = false
+      return unknown
+    end
+    if not target or targetCache ~= readableCache then
+      readableSnapshot = withoutTarget(readableSnapshot, readableRatings)
+    end
+    local frozen = copy(readableSnapshot)
+    frozen.preCombat = true
+    return frozen
+  end
+  local specID, specName, heroID, target = readContext()
   local ratings, current = A.ReadRatings(), A.ReadStats()
-  return {specID=specID, specName=specName, heroTreeID=heroID, current=current, target=target,
+  lastRatings = ratings
+  lastSnapshot = {specID=specID, specName=specName, heroTreeID=heroID, current=current, target=target,
+    preCombat=false,
     ratingComparison=A.RatingComparison(target, ratings), shareComparison=A.ShareComparison(target, ratings),
     ratingTarget=A.RatingTargets(target, ratings)}
+  for _,key in ipairs(STATS) do
+    if finite(current[key]) or finite(ratings[key]) then
+      readableSnapshot, readableRatings = copy(lastSnapshot), copy(ratings)
+      readableCache = targetCache
+      break
+    end
+  end
+  return copy(lastSnapshot)
+end
+local scheduleExpiry
+local function panelVisible()
+  if not A.visible or A.settings.collapsed then return false end
+  if A.panel then
+    local visible = call(A.panel.IsVisible, A.panel)
+    if visible ~= true then return false end
+  end
+  return true
+end
+function A.InvalidateTarget()
+  targetCache = nil
+  if readableSnapshot then readableSnapshot = withoutTarget(readableSnapshot, readableRatings) end
+  if not lastSnapshot or not lastSnapshot.target then return end
+  -- Discard references even while hidden; retain only the safe historical values.
+  lastSnapshot = withoutTarget(lastSnapshot, lastRatings)
+  if panelVisible() and A.Render then
+    local snapshot = inCombat() and A.Snapshot() or copy(lastSnapshot)
+    A.Render(snapshot)
+  end
+end
+function A.SetCombat(active)
+  if not public(active) or type(active) ~= "boolean" or active == combat then return end
+  combat = active
+  A.generation = (A.generation or 0) + 1
+  A.expiryToken = (A.expiryToken or 0) + 1
+  A.expiryScheduled = nil
+  A.pending = false
+  A.Flush() -- frozen render on entry; one fresh visible sample on exit
 end
 function A.Flush()
   A.pending = false
-  if not A.visible then return end
-  if A.panel then
-    if not A.panel.IsVisible then return end
-    local visible = A.panel:IsVisible()
-    if not public(visible) or visible ~= true then return end
-  end
+  if not panelVisible() then return end
   local snapshot = A.Snapshot()
   if A.Render then A.Render(snapshot) end
+  scheduleExpiry(snapshot)
+end
+scheduleExpiry = function(snapshot)
   local expiry = snapshot.target and snapshot.target.expiresAt
   local data, mode, specID = A.releaseData, A.settings.mode, snapshot.specID
   if expiry ~= A.expiryAt or data ~= A.expiryData or mode ~= A.expiryMode or specID ~= A.expirySpec then
@@ -458,9 +637,11 @@ function A.Flush()
       local token = A.expiryToken
       A.expiryScheduled = expiry
       timer(delay, function()
-        if A.visible and A.generation == generation and A.expiryToken == token and A.releaseData == data and A.settings.mode == mode then
+        -- The token binds this callback to the displayed dataset/context. A silent
+        -- replacement must not prevent removal of its now-expired references.
+        if panelVisible() and A.generation == generation and A.expiryToken == token then
           A.expiryScheduled = nil
-          A.Flush()
+          if inCombat() then A.InvalidateTarget() else A.Flush() end
         end
       end)
     end
@@ -468,8 +649,15 @@ function A.Flush()
     A.expiryScheduled = nil
   end
 end
-function A.QueueRefresh()
-  if not A.visible or A.pending then return end
+local CONTEXT_EVENTS = {PLAYER_SPECIALIZATION_CHANGED=true, ACTIVE_TALENT_GROUP_CHANGED=true,
+  PLAYER_TALENT_UPDATE=true, TRAIT_CONFIG_UPDATED=true, UNIT_LEVEL=true, PLAYER_ENTERING_WORLD=true}
+function A.QueueRefresh(reason)
+  if public(reason) and type(reason) == "string" and CONTEXT_EVENTS[reason] then
+    if inCombat() then A.InvalidateTarget() else targetCache = nil end
+  end
+  if not panelVisible() then return end
+  if inCombat() then A.pending = true; return end
+  if A.pending then return end
   local timer = safeFunction(C_Timer, "After")
   if not timer then A.Flush(); return end
   A.pending = true
@@ -482,6 +670,7 @@ function A.SetVisible(visible)
   if not public(visible) or type(visible) ~= "boolean" then return end
   if visible == A.visible then return end
   A.visible = visible
+  A.pending = false
   A.generation = (A.generation or 0) + 1
   A.expiryToken = (A.expiryToken or 0) + 1
   A.expiryAt = nil
@@ -490,7 +679,7 @@ function A.SetVisible(visible)
   if visible then
     A.pending = false
     if A.ApplySkin then A.ApplySkin() end
-    A.Flush() -- immediate current data exactly once
+    A.Flush() -- one fresh out-of-combat sample, or the frozen combat display
   end
 end
 function A.SetMode(mode)

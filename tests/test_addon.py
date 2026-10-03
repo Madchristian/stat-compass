@@ -169,6 +169,7 @@ function GetLocale() return "enUS" end
 function GetPhysicalScreenSize() return 1920,1080 end
 function GetBuildInfo() return "12.1.0","69933","Oct 2 2026",120100 end
 function UnitLevel(unit) assert(unit=="player"); return 90 end
+function InCombatLockdown() return false end
 function GetServerTime() return 1800000000 end
 function GetCritChance() return 20 end
 function GetRangedCritChance() return 19 end

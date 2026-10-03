@@ -171,3 +171,77 @@ def test_share_comparison_ignores_gear_level():
       local partial = StatCompass.ShareComparison(t, StatCompass.ReadRatings())
       assert(partial.crit.currentShare == nil and partial.crit.reference)  -- no own share without all four
     ''')
+
+
+
+def test_personal_rating_targets_use_own_conversion():
+    from tests.test_addon import load_runtime, run
+    build = load_tool("build_data")
+    tool = load_tool("blizzard_dataset")
+    source = observations(**{"71": 30})   # crit 20.1 .. 23.0 %, mastery 30 %, versatility 5 %, haste rating 700
+    data_manifest, _ = tool.manifest(source, interface=120100, client_build=69933, level=90, now=NOW)
+    data = build.checked(data_manifest, b"synthetic", now=NOW)
+    lua = load_runtime("""
+      local bonus = {[9]=8, [10]=8, [11]=8, [18]=0, [19]=0, [20]=0, [26]=10, [29]=5}
+      function GetCombatRatingBonus(id) return bonus[id] end
+    """)
+    run(lua, "StatCompass.releaseData=" + build.lua_value(data))
+    run(lua, f"GetServerTime=function() return {NOW} end")
+    run(lua, """
+      GetMasteryEffect = function() return 30, 1.5 end      -- 10 points from rating * 1.5 = 15 % from rating
+      local function near(a, b) return math.abs(a - b) < 1e-9 end
+      local t = StatCompass.GetTarget(71, "mythic")
+      assert(near(t.pct.crit.median, 21.5) and near(t.pct.crit.low, 21.2) and near(t.pct.crit.high, 21.8))  -- ranks 15, 12, 18
+      local current = {crit=18, haste=10, mastery=30, versatility=5}
+      local ratings = {crit=400, haste=300, mastery=500, versatility=250}
+      local r = StatCompass.RatingTargets(t, ratings, current)
+      -- crit: 8 % from 400 rating -> 0.02 %/rating, base 10 %; median 21.5 % needs 575 rating
+      assert(r.crit.personal and near(r.crit.targetRating, 575) and near(r.crit.lowRating, 560) and near(r.crit.highRating, 590))
+      assert(r.crit.currentRating == 400 and near(r.crit.targetPercent, 21.5) and r.crit.sampleCount == 30)
+      -- mastery: base 15 %, 0.03 %/rating; cohort 30 % -> 500
+      assert(r.mastery.personal and near(r.mastery.targetRating, 500))
+      -- haste: no readable bonus -> the cohort's own median rating stands in
+      assert(r.haste.personal == false and r.haste.targetRating == 700)
+      assert(near(r.totals.targetRating, 575 + 700 + 500 + 250) and r.totals.ownRating == 1450)
+      -- above the target percent the need never goes negative
+      local rich = StatCompass.RatingTargets(t, ratings, {crit=60, haste=10, mastery=30, versatility=5})
+      assert(rich.crit.targetRating == 0)
+      -- no cohort: nothing to aim at, but the own rating stays
+      local none = StatCompass.RatingTargets(nil, ratings, current)
+      assert(none.crit.sourceStatus == "unavailable" and none.crit.currentRating == 400 and none.totals.targetRating == nil)
+      GetMasteryEffect = function() error("unavailable") end
+      assert(StatCompass.RatingTargets(t, ratings, current).mastery.personal == false)
+      -- the snapshot carries the targets
+      StatCompass.settings.mode = "mythic"
+      assert(StatCompass.Snapshot().ratingTarget.totals)
+    """)
+
+
+def test_priority_follows_the_cohorts_budget_shares():
+    build = load_tool("build_data")
+    tool = load_tool("blizzard_dataset")
+    source = observations(**{"104": 30})
+    for row in source["specs"]["104"]["observations"]:
+        row["ratings"] = {"crit": 900, "haste": 1200, "mastery": 450, "versatility": 400}  # Guardian-like split
+    data_manifest, _ = tool.manifest(source, interface=120100, client_build=69933, level=90, now=NOW)
+    data = build.checked(data_manifest, b"synthetic", now=NOW)
+    lua = LuaRuntime()
+    lua.execute(f"""
+      StatCompass = {{}}
+      GetBuildInfo = function() return "12.1.0", "69933", "", 120100 end
+      UnitLevel = function() return 90 end
+      GetServerTime = function() return {NOW} end
+    """)
+    lua.execute((ROOT / "StatCompass/Core.lua").read_text(encoding="utf-8"))
+    lua.execute("StatCompass.releaseData = " + build.lua_value(data))
+    target = lua.eval('StatCompass.GetTarget(104, "mythic")')
+    assert [target.priority[i] for i in range(1, 5)] == ["haste", "crit", "mastery", "versatility"]
+    assert round(target.share.haste.median, 1) == 40.7
+    # equal shares keep the Character-window order
+    for row in source["specs"]["104"]["observations"]:
+        row["ratings"] = {"crit": 500, "haste": 500, "mastery": 500, "versatility": 500}
+    data = build.checked(tool.manifest(source, interface=120100, client_build=69933, level=90, now=NOW)[0],
+                         b"synthetic", now=NOW)
+    lua.execute("StatCompass.releaseData = " + build.lua_value(data))
+    tied = lua.eval('StatCompass.GetTarget(104, "mythic")').priority
+    assert [tied[i] for i in range(1, 5)] == ["crit", "haste", "mastery", "versatility"]

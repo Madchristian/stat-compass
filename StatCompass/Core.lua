@@ -71,6 +71,8 @@ end
 local STATS = {"crit", "haste", "mastery", "versatility"}
 local RATINGS = {crit="critRating", haste="hasteRating", mastery="masteryRating", versatility="versatilityRating"}
 local MIN_COHORT, MAX_COHORT = 20, 50
+-- Target band: the cohort median, bracketed by its 40th and 60th percentiles.
+local TARGET_LOW, TARGET_MID, TARGET_HIGH = 0.4, 0.5, 0.6
 A.statOrder = STATS
 -- Percent points, never rating. Mastery is displayed effect, not rating or base GetMastery().
 local getters = {haste="GetHaste", mastery="GetMasteryEffect"}
@@ -251,6 +253,9 @@ function A.GetTarget(specID, mode, heroID)
     if not (total > 0) then budgets = nil; break end
   end
   if budgets then result.share = {} end
+  -- nearest-rank percentile of an ascending list
+  local function at(values, p) return values[math.max(1, math.ceil(count * p))] end
+  result.pct = {}
   for j=1,#STATS do
     local key = STATS[j]
     local mean, values = summary(key)
@@ -259,17 +264,33 @@ function A.GetTarget(specID, mode, heroID)
     -- nearest-rank quartiles; for 50 rows these are ranks 13 and 38 as before
     result.band[key] = {low=values[math.ceil(count*0.25)], high=values[math.ceil(count*0.75)]}
     result.range[key] = {min=values[1], max=values[count]}
+    result.pct[key] = {median=at(values, TARGET_MID), low=at(values, TARGET_LOW), high=at(values, TARGET_HIGH)}
     local ratingMean, ratings = summary(RATINGS[key])
     if not ratingMean then return nil end
     result.rating[key] = {mean=ratingMean, min=ratings[1], max=ratings[count],
+      median=at(ratings, TARGET_MID), p40=at(ratings, TARGET_LOW), p60=at(ratings, TARGET_HIGH),
       low=ratings[math.ceil(count*0.25)], high=ratings[math.ceil(count*0.75)]}
     if budgets then
       local field = RATINGS[key]
       local shareMean, shares = summary(nil, function(row) return row[field] / budgets[row] * 100 end)
       if not shareMean then return nil end
-      result.share[key] = {mean=shareMean, min=shares[1], max=shares[count],
+      result.share[key] = {mean=shareMean, median=at(shares, TARGET_MID), min=shares[1], max=shares[count],
         low=shares[math.ceil(count*0.25)], high=shares[math.ceil(count*0.75)]}
     end
+  end
+  -- Stat priority: where the cohort puts most of its secondary budget (median share), highest first.
+  -- This is what top players invest in, not a simulated value; ties keep the Character-window order.
+  if result.share then
+    local order = {}
+    for j=1,#STATS do order[j] = STATS[j] end
+    local rank = {}
+    for j=1,#STATS do rank[STATS[j]] = j end
+    table.sort(order, function(a, b)
+      local x, y = result.share[a].median, result.share[b].median
+      if x ~= y then return x > y end
+      return rank[a] < rank[b]
+    end)
+    result.priority = order
   end
   result.sample = count
   result.heroTreeID = cohort.heroTreeID
@@ -364,13 +385,72 @@ function A.ShareComparison(target, ratings)
   end
   return result
 end
+-- The player's own rating -> percent conversion, read from the game: `rate` is percent per rating
+-- point, `base` what the character window would show without any secondary rating (race,
+-- talents, spec, buffs). Mastery uses its effect coefficient from GetMasteryEffect.
+function A.ReadConversion(current, ratings)
+  local conversions = {}
+  for j=1,#STATS do
+    local key = STATS[j]
+    local bonus
+    if key == "mastery" then
+      local fn = GetMasteryEffect
+      local ok, _, coefficient = pcall(fn)
+      local points = call(GetCombatRatingBonus, 26)
+      if public(ok) and ok == true and finite(coefficient) and finite(points) then bonus = points * coefficient end
+    else
+      for _,id in ipairs(RATING_IDS[key]) do
+        local value = call(GetCombatRatingBonus, id)
+        if finite(value) and (not bonus or value > bonus) then bonus = value end
+      end
+    end
+    local now, rating = current and current[key], ratings and ratings[key]
+    if finite(now) and finite(bonus) and finite(rating) and rating > 0 and bonus > 0 then
+      conversions[key] = {base=now - bonus, rate=bonus / rating}
+    end
+  end
+  return conversions
+end
+-- Rating targets as the player would need them: the cohort's median percentage (and its 40th-60th
+-- percentile band) converted back with the player's own conversion, so race, talents and spec
+-- passives count. Without a readable conversion the cohort's own ratings stand in.
+function A.RatingTargets(target, ratings, current)
+  local conversions = A.ReadConversion(current, ratings)
+  local result, total, budget = {}, 0, 0
+  for j=1,#STATS do
+    local key = STATS[j]
+    local own = ratings and finite(ratings[key]) and ratings[key] or nil
+    if own and budget then budget = budget + own else budget = nil end
+    local pct, rating, conv = target and target.pct and target.pct[key], target and target.rating and target.rating[key], conversions[key]
+    local entry = {currentRating=own}
+    if pct and conv then
+      local function need(percent) return math.max(0, (percent - conv.base) / conv.rate) end
+      entry.targetRating, entry.lowRating, entry.highRating = need(pct.median), need(pct.low), need(pct.high)
+      entry.targetPercent, entry.personal = pct.median, true
+    elseif rating and rating.median then
+      entry.targetRating, entry.lowRating, entry.highRating = rating.median, rating.p40, rating.p60
+      entry.targetPercent, entry.personal = pct and pct.median, false
+    end
+    if entry.targetRating then
+      entry.sampleCount, entry.sourceStatus = target.sample, "verified"
+      if total then total = total + entry.targetRating end
+    else
+      entry.sourceStatus, total = "unavailable", nil
+    end
+    result[key] = entry
+  end
+  -- the four targets together may exceed the player's budget at a lower item level; say so
+  result.totals = {targetRating=total, ownRating=budget}
+  return result
+end
 function A.Snapshot()
   local specID, specName = A.ReadSpecInfo()
   local heroID = A.ReadHeroTree()
   local target = A.GetTarget(specID, A.settings.mode, heroID)
-  local ratings = A.ReadRatings()
-  return {specID=specID, specName=specName, heroTreeID=heroID, current=A.ReadStats(), target=target,
-    ratingComparison=A.RatingComparison(target, ratings), shareComparison=A.ShareComparison(target, ratings)}
+  local ratings, current = A.ReadRatings(), A.ReadStats()
+  return {specID=specID, specName=specName, heroTreeID=heroID, current=current, target=target,
+    ratingComparison=A.RatingComparison(target, ratings), shareComparison=A.ShareComparison(target, ratings),
+    ratingTarget=A.RatingTargets(target, ratings, current)}
 end
 function A.Flush()
   A.pending = false

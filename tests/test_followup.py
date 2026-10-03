@@ -11,12 +11,12 @@ NOW = 1800000000
 
 
 def synthetic_manifest():
-    rows = [dict(rank=i, id=f"synthetic-{i}", region="EU", mode="raid", specID=71,
+    rows = [dict(rank=i, id=f"synthetic-{i}", region="EU", mode="mythic", specID=71,
                  interface=120100, clientBuild=69933, level=90, unit="percentPoints",
                  semanticKind="masteryEffectPercent", observedAt=NOW-1000,
                  crit=25, haste=30, mastery=199, versatility=12, critRating=900, hasteRating=700,
                  masteryRating=800, versatilityRating=400) for i in range(1, 51)]
-    cohort = dict(region="EU", mode="raid", specID=71, interface=120100,
+    cohort = dict(region="EU", mode="mythic", specID=71, interface=120100,
                   clientBuild=69933, level=90, unit="percentPoints",
                   semanticKind="masteryEffectPercent", season="synthetic-season",
                   rankingMetric="synthetic-dps", difficulty="synthetic-mythic",
@@ -30,11 +30,7 @@ def synthetic_manifest():
 
 def runtime_with_data(locale=None):
     builder = load_tool("build_data")
-    manifest=synthetic_manifest()
-    import copy
-    m=copy.deepcopy(manifest["cohorts"][0]); m["mode"]="mythic"
-    for row in m["observations"]: row["mode"]="mythic"
-    manifest["cohorts"].append(m)
+    manifest = synthetic_manifest()   # Mythic+ is the only mode
     data = builder.checked(manifest, b"synthetic raw", now=NOW)
     lua = load_runtime('GetLocale=function() return "deDE" end' if locale == "deDE" else "")
     run(lua, "StatCompass.releaseData=" + builder.lua_value(data))
@@ -45,21 +41,21 @@ def runtime_with_data(locale=None):
 def test_expiry_and_build_fail_closed():
     lua = runtime_with_data()
     run(lua, f'''
-      assert(StatCompass.GetTarget(71,"raid").mastery==199)
+      assert(StatCompass.GetTarget(71,"mythic").mastery==199)
       GetBuildInfo=function() return "12.1.0","69934","synthetic",120100 end
-      assert(StatCompass.GetTarget(71,"raid")==nil)
+      assert(StatCompass.GetTarget(71,"mythic")==nil)
       GetBuildInfo=function() return "12.1.0","69933","synthetic",120100 end
       GetServerTime=function() return {NOW+1000} end
-      assert(StatCompass.GetTarget(71,"raid")==nil) -- expiry boundary
+      assert(StatCompass.GetTarget(71,"mythic")==nil) -- expiry boundary
       GetServerTime=function() return {NOW-1} end
-      assert(StatCompass.GetTarget(71,"raid")==nil) -- future collection
+      assert(StatCompass.GetTarget(71,"mythic")==nil) -- future collection
       GetServerTime=nil
-      assert(StatCompass.GetTarget(71,"raid")==nil)
+      assert(StatCompass.GetTarget(71,"mythic")==nil)
       GetServerTime=function() return math.huge end
-      assert(StatCompass.GetTarget(71,"raid")==nil)
+      assert(StatCompass.GetTarget(71,"mythic")==nil)
       GetServerTime=function() return {NOW} end
       StatCompass.releaseData.observedAt={NOW+1}
-      assert(StatCompass.GetTarget(71,"raid")==nil)
+      assert(StatCompass.GetTarget(71,"mythic")==nil)
     ''')
 
 
@@ -79,13 +75,13 @@ def test_manifest_rejects_mastery_points_hash_and_future_policy():
     lua = runtime_with_data()
     run(lua, '''
       local secret=setmetatable({secret=true},{__eq=function() error("secret equality") end,__index=function() error("secret index") end})
-      assert(StatCompass.GetTarget(secret,"raid")==nil)
+      assert(StatCompass.GetTarget(secret,"mythic")==nil)
       assert(StatCompass.GetTarget(71,secret)==nil)
       StatCompass.releaseData.rawSHA256="bad"
-      assert(StatCompass.GetTarget(71,"raid")==nil)
+      assert(StatCompass.GetTarget(71,"mythic")==nil)
       StatCompass.releaseData.rawSHA256=string.rep("a",64)
-      StatCompass.releaseData.cohorts[71].raid.semanticKind="masteryPoints"
-      assert(StatCompass.GetTarget(71,"raid")==nil)
+      StatCompass.releaseData.cohorts[71].mythic.semanticKind="masteryPoints"
+      assert(StatCompass.GetTarget(71,"mythic")==nil)
     ''')
 
 
@@ -164,7 +160,7 @@ def test_hidden_skin_and_parent_close_no_render_or_frame_growth():
 def test_de_locale_column_bounds_and_lazy_attach():
     lua = runtime_with_data("deDE")
     run(lua, '''
-      for i=1,50 do StatCompass.releaseData.cohorts[71].raid.observations[i].mastery=999.9 end
+      for i=1,50 do StatCompass.releaseData.cohorts[71].mythic.observations[i].mastery=999.9 end
       GetMasteryEffect=function() return 999.9 end
       Fire("PLAYER_LOGIN")
       CharacterFrame:Show(); PaperDollFrame:Show()
@@ -208,9 +204,9 @@ def test_secret_api_returns_and_all_relevant_events():
       assert(#widgets.callbacks==1)
       RunCallbacks()
       GetServerTime=function() return secret end
-      assert(StatCompass.GetTarget(71,"raid")==nil)
+      assert(StatCompass.GetTarget(71,"mythic")==nil)
       GetBuildInfo=function() return "12.1.0",secret,"synthetic",120100 end
-      assert(StatCompass.GetTarget(71,"raid")==nil)
+      assert(StatCompass.GetTarget(71,"mythic")==nil)
       C_SpecializationInfo.GetSpecializationInfo=function() return secret,secret end
       assert(StatCompass.ReadSpecInfo()==nil)
       C_SpecializationInfo.GetSpecializationInfo=function() return 71,secret end
@@ -218,11 +214,11 @@ def test_secret_api_returns_and_all_relevant_events():
       assert(id==71 and name==nil)
       GetBuildInfo=function() return "12.1.0","69933","synthetic",120100 end
       GetServerTime=function() return 1800000000 end
-      StatCompass.releaseData.cohorts[71].raid.observations[1].mastery=secret
-      assert(StatCompass.GetTarget(71,"raid")==nil)
-      StatCompass.releaseData.cohorts[71].raid.observations[1].mastery=199
-      StatCompass.releaseData.cohorts[71].raid.season=secret
-      assert(StatCompass.GetTarget(71,"raid")==nil)
+      StatCompass.releaseData.cohorts[71].mythic.observations[1].mastery=secret
+      assert(StatCompass.GetTarget(71,"mythic")==nil)
+      StatCompass.releaseData.cohorts[71].mythic.observations[1].mastery=199
+      StatCompass.releaseData.cohorts[71].mythic.season=secret
+      assert(StatCompass.GetTarget(71,"mythic")==nil)
       CharacterFrame.GetRight=function() return secret end
       PaperDollFrame:Hide(); PaperDollFrame:Show()
     ''')

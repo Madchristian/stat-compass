@@ -94,35 +94,28 @@ jobs:
           DATA_LUA="${DATA_LUA:-$(find "$RUNNER_TEMP/data" -name Data.lua | head -1)}"
           python tools/release_data.py "$DATA_LUA" --min-days 7 --install
 
-      - name: Package and release
+      # Build first and check the package before anything is published (issue #10).
+      - name: Build package (no upload)
         uses: BigWigsMods/packager@v2
         with:
-          args: ${{ env.DRY_RUN == 'true' && '-d' || '' }}
+          args: -d
+
+      - name: Verify package
+        run: python tools/verify_package.py
+
+      # Only after the check: the same tree is packaged again and published.
+      - name: Publish
+        if: ${{ env.DRY_RUN != 'true' }}
+        uses: BigWigsMods/packager@v2
         env:
           # Provided by the runner: creates the GitHub release, which Wago imports by webhook.
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
           # Uploads the same package to CurseForge (X-Curse-Project-ID in the TOC); skipped while unset.
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
 
-      - name: Verify package
-        run: |
-          python - <<'EOF'
-          import glob, sys, zipfile
-          zips = [z for z in glob.glob(".release/*.zip") if "-nolib" not in z]
-          if len(zips) != 1:
-              sys.exit(f"expected one package, found {zips}")
-          names = zipfile.ZipFile(zips[0]).namelist()
-          tops = {n.split("/", 1)[0] for n in names}
-          required = {f"StatCompass/{f}" for f in ("StatCompass.toc", "Core.lua", "Data.lua", "UI.lua", "Locales.lua", "Controls.lua", "icon.tga")}
-          missing = required - set(names)
-          stray = [n for n in names if n.split("/")[1] in ("tools", "tests", "docs", ".github")]
-          data = zipfile.ZipFile(zips[0]).getinfo("StatCompass/Data.lua").file_size if not missing else 0
-          if tops != {"StatCompass"} or missing or stray or data < 100_000:
-              sys.exit(f"bad package: tops={tops} missing={missing} stray={stray[:5]} data={data}")
-          print(f"{zips[0]}: {len(names)} files, Data.lua {data} bytes")
-          for info in zipfile.ZipFile(zips[0]).infolist():
-              print(f"{info.file_size:>9}  {info.filename}")
-          EOF
+      - name: Verify published package
+        if: ${{ env.DRY_RUN != 'true' }}
+        run: python tools/verify_package.py
 
       - name: Keep dry-run package
         if: ${{ env.DRY_RUN == 'true' }}

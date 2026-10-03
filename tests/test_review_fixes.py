@@ -44,7 +44,7 @@ def test_large_finite_percentages_have_finite_mean_and_bounded_text():
         row["haste"] = 1e308
     lua = runtime_with_manifest(manifest)
     run(lua, '''
-      local target=StatCompass.GetTarget(71,"raid")
+      local target=StatCompass.GetTarget(71,"mythic")
       assert(target and target.haste==1e308 and target.haste<math.huge)
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
       assert(#StatCompass.rows[2].target.text <= 40)
@@ -117,18 +117,18 @@ def test_observation_window_and_summary_in_builder_and_runtime():
     data = builder.checked(valid, b"synthetic", now=NOW)
     lua = load_runtime()
     run(lua, "StatCompass.releaseData=" + builder.lua_value(data))
-    assert lua.eval("StatCompass.GetTarget(71,'raid')~=nil")
+    assert lua.eval("StatCompass.GetTarget(71,'mythic')~=nil")
     stale = copy.deepcopy(valid)
     stale["cohorts"][0]["observations"][0]["observedAt"] -= 1
     with pytest.raises(ValueError, match="observation window"):
         builder.checked(stale, b"synthetic", now=NOW)
-    run(lua, "StatCompass.releaseData.cohorts[71].raid.observations[1].observedAt=StatCompass.releaseData.observedAt-86401")
+    run(lua, "StatCompass.releaseData.cohorts[71].mythic.observations[1].observedAt=StatCompass.releaseData.observedAt-86401")
     assert not lua.eval("StatCompass.ValidateDataset(StatCompass.releaseData,120100,69933,90,1800000000)")
     wrong = copy.deepcopy(valid)
     wrong["observedAt"] -= 1
     with pytest.raises(ValueError, match="observedAt summary"):
         builder.checked(wrong, b"synthetic", now=NOW)
-    run(lua, "StatCompass.releaseData.cohorts[71].raid.observations[1].observedAt=StatCompass.releaseData.observedAt-86400; StatCompass.releaseData.observedAt=StatCompass.releaseData.observedAt-1")
+    run(lua, "StatCompass.releaseData.cohorts[71].mythic.observations[1].observedAt=StatCompass.releaseData.observedAt-86400; StatCompass.releaseData.observedAt=StatCompass.releaseData.observedAt-1")
     assert not lua.eval("StatCompass.ValidateDataset(StatCompass.releaseData,120100,69933,90,1800000000)")
 
 
@@ -215,7 +215,7 @@ def test_row_age_relative_to_collection_boundary_in_builder_and_lua():
         row["observedAt"] -= 1
     with pytest.raises(ValueError, match="collection age"):
         builder.checked(stale, b"synthetic", now=NOW)
-    run(lua, "StatCompass.releaseData.observedAt=StatCompass.releaseData.observedAt-1; local c=StatCompass.releaseData.cohorts[71].raid; c.observedAt=c.observedAt-1; for i=1,50 do c.observations[i].observedAt=c.observedAt end")
+    run(lua, "StatCompass.releaseData.observedAt=StatCompass.releaseData.observedAt-1; local c=StatCompass.releaseData.cohorts[71].mythic; c.observedAt=c.observedAt-1; for i=1,50 do c.observations[i].observedAt=c.observedAt end")
     assert not lua.eval("StatCompass.ValidateDataset(StatCompass.releaseData,120100,69933,90,1800000000)")
 
 
@@ -263,37 +263,32 @@ def test_same_expiry_replacement_invalidates_callback_and_refreshes_shown_toolti
     ''')
 
 
-def test_same_expiry_mode_and_spec_context_invalidate_old_callbacks():
+def test_same_expiry_collapse_and_spec_context_invalidate_old_callbacks():
     manifest = synthetic_manifest()
-    raid = manifest["cohorts"][0]
-    mythic = copy.deepcopy(raid)
-    mythic["mode"] = "mythic"
-    for row in mythic["observations"]:
-        row["mode"] = "mythic"
-    other_spec = copy.deepcopy(raid)
+    other_spec = copy.deepcopy(manifest["cohorts"][0])
     other_spec["specID"] = 72
     for row in other_spec["observations"]:
         row["specID"] = 72
-    manifest["cohorts"].extend([mythic, other_spec])
+    manifest["cohorts"].append(other_spec)
     lua = runtime_with_manifest(manifest)
     run(lua, '''
       Fire("PLAYER_LOGIN"); CharacterFrame:Show(); PaperDollFrame:Show()
-      local raidTimer=widgets.timers[1].fn
+      local firstTimer=widgets.timers[1].fn
       StatCompass.SetCollapsed(true); RunCallbacks()
       assert(#widgets.timers==1)
       StatCompass.SetCollapsed(false)
       local renders=0
       local original=StatCompass.Render
       StatCompass.Render=function(snapshot) renders=renders+1; original(snapshot) end
-      raidTimer()
+      firstTimer()                       -- collapsing invalidated it
       assert(renders==0)
-      local mythicTimer=widgets.timers[2].fn
+      local expandedTimer=widgets.timers[2].fn
       StatCompass.SetCollapsed(false); RunCallbacks()
       local oldSpecTimer=widgets.timers[2].fn
       C_SpecializationInfo.GetSpecializationInfo=function() return 72,"Other" end
       Fire("PLAYER_SPECIALIZATION_CHANGED","player"); RunCallbacks()
       local before=renders
-      mythicTimer()
+      expandedTimer()
       oldSpecTimer()
       assert(renders==before and #widgets.timers==3)
     ''')

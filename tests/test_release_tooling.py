@@ -1,6 +1,5 @@
 """Release tooling: bilingual changelog generator, release data check, packaging configuration."""
 import json
-import textwrap
 import time
 from zipfile import ZipFile
 
@@ -88,10 +87,8 @@ def test_release_data_accepts_valid_and_rejects_empty_or_short_lived(tmp_path):
 
 
 @pytest.mark.parametrize("icon_path", ["StatCompass/icon.tga", None, "StatCompass/assets/icon.tga"])
-def test_release_archive_gate_requires_icon_at_runtime_path(tmp_path, monkeypatch, icon_path):
-    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    step = workflow.split("      - name: Verify package\n", 1)[1]
-    script = textwrap.dedent(step.split("python - <<'EOF'\n", 1)[1].split("          EOF", 1)[0])
+def test_release_archive_gate_requires_icon_at_runtime_path(tmp_path, icon_path):
+    gate = load_tool("verify_package")   # the same check release.yml runs before publishing
     release = tmp_path / ".release"
     release.mkdir()
     with ZipFile(release / "synthetic-test-only.zip", "w") as archive:
@@ -100,12 +97,12 @@ def test_release_archive_gate_requires_icon_at_runtime_path(tmp_path, monkeypatc
             archive.writestr(f"StatCompass/{name}", b"synthetic-test-only\n" * 6000 if name == "Data.lua" else b"test")
         if icon_path:
             archive.writestr(icon_path, (ROOT / "StatCompass/icon.tga").read_bytes())
-    monkeypatch.chdir(tmp_path)
+    archive = release / "synthetic-test-only.zip"
     if icon_path == "StatCompass/icon.tga":
-        exec(compile(script, "release.yml:Verify package", "exec"), {})
+        gate.verify(archive)
     else:
-        with pytest.raises(SystemExit, match=r"missing=.*StatCompass/icon\.tga"):
-            exec(compile(script, "release.yml:Verify package", "exec"), {})
+        with pytest.raises(ValueError, match=r"missing.*StatCompass/icon\.tga"):
+            gate.verify(archive)
 
 
 def test_packaging_configuration():
@@ -127,3 +124,28 @@ def test_packaging_configuration():
     assert "vars.AUTO_DATA_RELEASE == 'true'" in refresh                     # off unless the owner enables it
     assert "uses: ./.github/workflows/release.yml" in refresh and "tools/data_release.py prepare" in refresh
     assert "secrets: inherit" in refresh
+
+
+def test_package_check_runs_before_publishing(tmp_path):
+    import zipfile
+    tool = load_tool("verify_package")
+    def build(name, files):
+        path = tmp_path / name
+        with zipfile.ZipFile(path, "w") as archive:
+            for member, size in files.items():
+                archive.writestr(member, b"x" * size)
+        return path
+    good = {f"StatCompass/{f}": 10 for f in tool.REQUIRED} | {"StatCompass/Data.lua": 200_000}
+    assert tool.verify(build("good.zip", good))["StatCompass/Data.lua"] == 200_000
+    for name, files, message in [
+        ("empty-data.zip", good | {"StatCompass/Data.lua": 300}, "Data.lua"),
+        ("no-icon.zip", {k: v for k, v in good.items() if not k.endswith("icon.tga")}, "missing"),
+        ("tools.zip", good | {"StatCompass/tools/package.py": 10}, "stray"),
+        ("two-roots.zip", good | {"Other/file.lua": 10}, "top-level"),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            tool.verify(build(name, files))
+    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert workflow.index("Build package (no upload)") < workflow.index("Verify package") < workflow.index("- name: Publish")
+    build_step = workflow[workflow.index("Build package (no upload)"):workflow.index("Verify package")]
+    assert "args: -d" in build_step and "CF_API_KEY" not in build_step   # the check runs before any upload

@@ -57,7 +57,7 @@ def test_small_stat_keeps_fixed_axis_and_unknown_fill_hidden():
     lua = runtime_with_data()
     run(lua, '''
       GetHaste=function() return 6.8 end
-      local rows=StatCompass.releaseData.cohorts[71].raid.observations
+      local rows=StatCompass.releaseData.cohorts[71].mythic.observations
       for i=1,50 do rows[i].haste=7.1; rows[i].versatility=0 end
       GetCombatRatingBonus=function() return 0 end
       GetVersatilityBonus=function() return 0 end

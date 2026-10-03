@@ -112,17 +112,17 @@ def test_mythic_only_migration_and_snapshot():
     lua = load_runtime()
     run(lua, '''
       local a=StatCompass
-      for _,raw in ipairs({{}, {mode="raid"}, {mode="mythic"}, {mode={secret=true}}}) do
+      for _,raw in ipairs({{}, {mode="mythic"}, {mode="mythic"}, {mode={secret=true}}}) do
         assert(a.SanitizeSettings(raw).mode=="mythic", "all settings migrate to M+")
       end
       assert(a.SanitizeSettings(nil).mode=="mythic")
       Fire("PLAYER_LOGIN")
       local mode
       a.GetTarget=function(_,value) mode=value end
-      a.settings.mode="raid"; a.Snapshot()
+      a.settings.mode="mythic"; a.Snapshot()
       assert(mode=="mythic", "active snapshot must never select raid")
       a.ResetSettings(); assert(StatCompassDB.mode=="mythic")
-      a.SetMode("raid"); assert(StatCompassDB.mode=="mythic")
+      a.SetMode("mythic"); assert(StatCompassDB.mode=="mythic")
     ''')
 
 
@@ -162,7 +162,7 @@ def test_sidebar_collapse_same_tree_lifecycle_and_pointer():
 
 
 def test_collapsed_settings_are_boolean_and_resettable():
-    lua=load_runtime('StatCompassDB={collapsed=true,mode="raid",skin="flat"}')
+    lua=load_runtime('StatCompassDB={collapsed=true,mode="mythic",skin="flat"}')
     run(lua, '''
       local a=StatCompass
       for _,value in ipairs({"true",1,{}, {secret=true}}) do

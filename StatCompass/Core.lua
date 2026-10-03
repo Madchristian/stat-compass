@@ -29,7 +29,8 @@ end
 local function literal(value, allowed)
   return public(value) and type(value) == "string" and allowed[value] == true
 end
-local MODES = {raid=true, mythic=true}
+-- Mythic+ only: Blizzard publishes no per-player raid ranking (the Hall of Fame stops before Midnight).
+local MODES = {mythic=true}
 local SKINS = {default=true, flat=true}
 function A.SanitizeSettings(raw)
   local result = {mode="mythic", skin="default", minimapShown=true, minimapAngle=225, collapsed=false}

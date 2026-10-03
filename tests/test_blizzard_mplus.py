@@ -1,6 +1,8 @@
 """Synthetic Blizzard API cases; no real player identities are shipped in fixtures."""
 import importlib.util
 import json
+import time
+import threading
 import math
 from collections import Counter
 from io import BytesIO
@@ -483,3 +485,48 @@ def test_client_raises_transport_errors_for_5xx_and_plain_errors_otherwise():
     with pytest.raises(bz.BlizzardError) as error:
         client.get("/data/wow/connected-realm/index", "dynamic-eu")
     assert not isinstance(error.value, bz.TransportError)
+
+
+
+class SlowClient(FakeClient):
+    """Simulates request latency and records how many requests ran at the same time."""
+
+    def __init__(self, responses, delay=0.02):
+        super().__init__(responses)
+        self.delay, self.active, self.peak = delay, 0, 0
+        self.lock = threading.Lock()
+
+    def get(self, path, namespace):
+        with self.lock:
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+        time.sleep(self.delay)
+        try:
+            with self.lock:
+                return super().get(path, namespace)
+        finally:
+            with self.lock:
+                self.active -= 1
+
+
+def test_walk_checks_ahead_in_parallel_without_changing_the_result():
+    def build(client_cls):
+        ranker = bz.SpecRanker()
+        for c in range(1, 13):
+            ranker.add(dict(dungeon=1, rating=500.0 - c, level=20, period=1, duration=1, completed=c,
+                            members=[dict(id=c, name=f"Synthetic{c}", realm="synthetic-realm", realmId=11, spec=62)]))
+        responses = {}
+        for c in range(1, 13):
+            responses |= character(c, 62, ilvl=330, active=63 if c in (2, 5) else None)
+        client = client_cls(responses)
+        return bz.Certifier(client, ranker, [1], {}, {11: 100}, season_id=18, max_level=90, ilvl_gap=10, workers=4), client
+    serial, _ = build(FakeClient)
+    serial.workers = 1
+    expected = serial._walk(sorted(range(1, 13)), 62, 6)
+    parallel, client = build(SlowClient)
+    result = parallel._walk(sorted(range(1, 13)), 62, 6)
+    assert result == expected and [c for c in result[0]] == [1, 3, 4, 6, 7, 8]
+    assert result[2] == {2: "activeSpec", 5: "activeSpec"}
+    assert client.peak > 1                                # lookups really overlapped
+    hero, _, _ = parallel.run(62, target=3, hero_id=66, minimum=2, max_walk=4)
+    assert [r["rank"] for r in hero] == [1, 2, 3]

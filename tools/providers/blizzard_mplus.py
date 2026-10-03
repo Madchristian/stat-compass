@@ -36,6 +36,11 @@ class BlizzardError(ValueError):
     pass
 
 
+class TransportError(BlizzardError):
+    """A request kept failing (connection, timeout, truncated body, 5xx). One character's lookup
+    failing this way must not end a whole run; a spent request budget still does."""
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, msg, headers, newurl):
         raise BlizzardError("redirect refused")
@@ -89,7 +94,7 @@ class Client:
     """Rate-limited, optionally cached GET client. 404 returns None (a documented, meaningful answer)."""
 
     def __init__(self, token, *, opener=None, cache_dir=None, max_requests=30000, rps=40, timeout=20,
-                 max_attempts=3, wait_budget=120, sleep=time.sleep, clock=time.monotonic):
+                 max_attempts=4, wait_budget=120, sleep=time.sleep, clock=time.monotonic):
         if cache_dir is not None:
             cache_dir = Path(cache_dir).resolve()
             if cache_dir.is_relative_to(REPOSITORY):
@@ -140,7 +145,8 @@ class Client:
                     body = None
                     break
                 if exc.code not in (429, 500, 502, 503, 504) or attempt + 1 == self.max_attempts:
-                    raise BlizzardError(f"HTTP {exc.code} for {urlsplit(url).path}") from None
+                    error = TransportError if exc.code >= 500 else BlizzardError
+                    raise error(f"HTTP {exc.code} for {urlsplit(url).path}") from None
                 delay = _retry_after(exc.headers.get("Retry-After", ""), default=2 ** attempt)
                 if delay > self.wait_budget:
                     raise BlizzardError("retry wait budget exceeded") from None
@@ -151,7 +157,7 @@ class Client:
                 # HTTPError is handled above; this covers refused connections, read timeouts and truncated bodies
                 self.status_counts["transport"] += 1
                 if attempt + 1 == self.max_attempts:
-                    raise BlizzardError("network unavailable") from None
+                    raise TransportError("network unavailable") from None
                 self.sleep(2 ** attempt)
         if cached:
             cached.parent.mkdir(parents=True, exist_ok=True)
@@ -290,7 +296,7 @@ def rank_specs(runs):
 
 def new_scan_stats():
     return {"leaderboardRequests": 0, "missing": Counter(), "present": Counter(), "sizes": Counter(),
-            "rejected": 0, "lowestLevel": Counter(), "floors": [], "dungeons": []}
+            "rejected": 0, "lowestLevel": Counter(), "floors": [], "dungeons": [], "failed": Counter()}
 
 
 def scan(client, realms, periods, ranker, *, workers=8, progress=None, stats=None):
@@ -306,7 +312,11 @@ def scan(client, realms, periods, ranker, *, workers=8, progress=None, stats=Non
 
     def one(job):
         realm, dungeon, period = job
-        payload = client.get(f"/data/wow/connected-realm/{realm}/mythic-leaderboard/{dungeon}/period/{period}", "dynamic-eu")
+        try:
+            payload = client.get(f"/data/wow/connected-realm/{realm}/mythic-leaderboard/{dungeon}/period/{period}",
+                                 "dynamic-eu")
+        except TransportError:
+            return job, "failed", 0, 0
         if payload is None:
             return job, None, 0, 0
         parsed, rejected = parse_leaderboard(payload, dungeon, period)
@@ -318,6 +328,11 @@ def scan(client, realms, periods, ranker, *, workers=8, progress=None, stats=Non
                 progress(f"{done}/{len(jobs)} leaderboards")
             if parsed is None:
                 stats["missing"][period] += 1
+                continue
+            if parsed == "failed":
+                # unknown board: anything could hide there, and the week must be fetched again next run
+                stats["failed"][period] += 1
+                stats["floors"].append((realm, dungeon, math.inf, None))
                 continue
             stats["present"][period] += 1
             stats["sizes"][size] += 1
@@ -338,7 +353,7 @@ def board_bounds(floors, cap=None):
     A board shorter than the cap lists every timed run, so it hides nothing. A full board hides only
     runs rated at most its lowest listed rating. Per (connected realm, dungeon) the bound is the
     maximum over all weeks. Cross-realm runs are listed on every member's connected realm board."""
-    cap = cap or max((size for _, _, size, _ in floors), default=0)
+    cap = cap or max((size for _, _, size, _ in floors if size != math.inf), default=0)
     bounds = defaultdict(float)
     for realm, dungeon, size, floor in floors:
         if size >= cap:
@@ -400,7 +415,10 @@ class Certifier:
         """(active spec ID, hero tree ID, hero tree name) from /specializations; one request, cached."""
         if char_id not in self.heroes:
             realm, name, _ = self.ranker.identity[char_id]
-            payload = self.client.get(character_path(realm, name, "/specializations"), "profile-eu") or {}
+            try:
+                payload = self.client.get(character_path(realm, name, "/specializations"), "profile-eu") or {}
+            except TransportError:
+                return None, None, None  # not cached: a later cohort may retry this character
             hero = payload.get("active_hero_talent_tree") or {}
             self.heroes[char_id] = (_id((payload.get("active_specialization") or {}).get("id")), _id(hero.get("id")),
                                     hero.get("name") if isinstance(hero.get("name"), str) else None)
@@ -410,7 +428,11 @@ class Certifier:
     def profile(self, char_id):
         if char_id not in self.profiles:
             realm, name, _ = self.ranker.identity[char_id]
-            payload = self.client.get(character_path(realm, name, f"/mythic-keystone-profile/season/{self.season_id}"), "profile-eu")
+            try:
+                payload = self.client.get(character_path(realm, name, f"/mythic-keystone-profile/season/{self.season_id}"),
+                                          "profile-eu")
+            except TransportError:
+                payload = None  # board facts stay the only evidence, which keeps the bounds safe
             if payload is not None and (payload.get("character") or {}).get("id") not in (None, char_id):
                 payload = None  # renamed or recreated character: board facts stay the only evidence
             with self.lock:
@@ -456,7 +478,10 @@ class Certifier:
                 self.checks[key] = "activeSpec"
             else:
                 realm, name, _ = self.ranker.identity[char_id]
-                stats, reason = verify(self.client, {"id": char_id, "realm": realm, "name": name}, spec_id, self.max_level)
+                try:
+                    stats, reason = verify(self.client, {"id": char_id, "realm": realm, "name": name}, spec_id, self.max_level)
+                except TransportError:
+                    stats, reason = None, "network"
                 if stats is not None:
                     stats["heroTree"] = {"id": hero_id, "name": hero_name} if hero_id else None
                 self.checks[key] = stats if stats is not None else reason
@@ -706,6 +731,24 @@ def hero_popularity(rows, heroes, spec_id):
     return {"sample": sample, "trees": dict(counts.most_common())}
 
 
+def hero_trees(spec_id, spec_meta, rows, heroes):
+    """{hero tree ID: name} to build cohorts for, one ID per tree name.
+
+    Character profiles (and the game) use one ID per tree; Blizzard's static spec data can list the
+    same tree under several IDs (Shaman: Stormbringer 55, 70, 73). Profile IDs win; a static ID is
+    kept only for a tree no profile has shown, so a tree nobody plays at the top is still searched."""
+    seen = {}
+    for v in rows:
+        if v.get("heroTree") and v["heroTree"].get("id"):
+            seen.setdefault(v["heroTree"]["name"], v["heroTree"]["id"])
+    for active, hero_id, name in list(heroes.values()):
+        if active == spec_id and hero_id:
+            seen.setdefault(name, hero_id)
+    for hero_id, name in spec_meta.get("heroTrees", []):
+        seen.setdefault(name, hero_id)
+    return {hero_id: name for name, hero_id in seen.items()}
+
+
 def hero_mix(valid):
     return dict(Counter((v.get("heroTree") or {}).get("name") or "unknown" for v in valid))
 
@@ -810,6 +853,7 @@ def main():
     todo = [p for p in closed if p not in done]
     if todo:
         scan(client, realms, todo, ranker, workers=args.workers, progress=log, stats=scan_stats)
+        todo = [p for p in todo if not scan_stats["failed"][p]]  # weeks with a failed board are fetched again
     closed_floors = list(scan_stats["floors"])
     if args.state:
         # saved before the current week is added: only finished weeks are reusable
@@ -848,11 +892,8 @@ def main():
     # hero talent cohorts: every tree seen among the checked players of a spec
     hero_jobs = {}
     for s in specs:
-        seen = set(specs[s].get("heroTrees", []))
-        seen |= {(v["heroTree"]["id"], v["heroTree"]["name"]) for v in verified[s][0] if v.get("heroTree")}
-        seen |= {(h, n) for c, (a, h, n) in list(certifier.heroes.items()) if a == s and h}
-        for hero_id, hero_name in sorted(seen):
-            hero_jobs.setdefault((s, hero_id), hero_name)
+        for hero_id, hero_name in hero_trees(s, specs[s], verified[s][0], certifier.heroes).items():
+            hero_jobs[(s, hero_id)] = hero_name
     heroes = defaultdict(dict)
     with ThreadPoolExecutor(4) as pool:
         futures = {key: pool.submit(certifier.run, key[0], target=args.target, hero_id=key[1], minimum=args.minimum,

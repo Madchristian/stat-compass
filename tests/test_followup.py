@@ -30,7 +30,12 @@ def synthetic_manifest():
 
 def runtime_with_data(locale=None):
     builder = load_tool("build_data")
-    data = builder.checked(synthetic_manifest(), b"synthetic raw", now=NOW)
+    manifest=synthetic_manifest()
+    import copy
+    m=copy.deepcopy(manifest["cohorts"][0]); m["mode"]="mythic"
+    for row in m["observations"]: row["mode"]="mythic"
+    manifest["cohorts"].append(m)
+    data = builder.checked(manifest, b"synthetic raw", now=NOW)
     lua = load_runtime('GetLocale=function() return "deDE" end' if locale == "deDE" else "")
     run(lua, "StatCompass.releaseData=" + builder.lua_value(data))
     run(lua, f"GetServerTime=function() return {NOW} end")
@@ -89,11 +94,11 @@ def test_panel_columns_spec_tooltip_skin_and_clamp():
     run(lua, r'''
       Fire("PLAYER_LOGIN")
       CharacterFrame:Show(); PaperDollFrame:Show()
-      assert(StatCompass.spec.text:find("71"))
-      assert(StatCompass.headers.current.text=="Your share")
-      assert(StatCompass.headers.target.text:find("Secondary budget"))
-      assert(StatCompass.rows[3].min.text:find("28.6%%") and StatCompass.rows[3].max.text:find("28.6%%"))  -- cohort mastery rating
-      assert(StatCompass.rows[3].tip.mean:find("Cohort average"))
+      assert(StatCompass.spec.text=="Unknown" and not StatCompass.spec.text:find("71"))
+      assert(StatCompass.rows[1].label.text=="Crit")
+      assert(StatCompass.headers==nil)
+      assert(StatCompass.rows[3].target.text=="Target 800")  -- cohort mastery rating
+      assert(StatCompass.rows[3].tip.target:find("800"))
       assert(StatCompass.panel.mouseEnabled==false)
       StatCompass.metadataHit.scripts.OnEnter(StatCompass.metadataHit)
       assert(GameTooltip.shown and GameTooltip.text==StatCompass.metadataText)
@@ -103,15 +108,15 @@ def test_panel_columns_spec_tooltip_skin_and_clamp():
       assert(StatCompass.metadataText:find("Selected: 50"))
       assert(StatCompass.metadataText:find("Expires:"))
       assert(StatCompass.panel.border.texture==[[Interface\Buttons\WHITE8X8]] and StatCompass.panel.border.color[1]==0.55)
-      StatCompass.buttons[4].scripts.OnClick(StatCompass.buttons[4])
+      StatCompass.buttons[2].scripts.OnClick(StatCompass.buttons[2])
       assert(StatCompass.panel.border.texture==[[Interface\Buttons\WHITE8X8]])
-      assert(StatCompass.buttons[4].selected==true)
-      assert(StatCompass.buttons[4].bg.color[1]~=StatCompass.buttons[3].bg.color[1])
-      StatCompass.buttons[4].scripts.OnEnter(StatCompass.buttons[4])
-      assert(StatCompass.buttons[4].hover.shown==true)
-      StatCompass.buttons[4].scripts.OnLeave(StatCompass.buttons[4])
-      assert(StatCompass.buttons[4].hover.shown==false)
-      StatCompass.buttons[3].scripts.OnClick(StatCompass.buttons[3])
+      assert(StatCompass.buttons[2].selected==true)
+      assert(StatCompass.buttons[2].bg.color[1]~=StatCompass.buttons[1].bg.color[1])
+      StatCompass.buttons[2].scripts.OnEnter(StatCompass.buttons[2])
+      assert(StatCompass.buttons[2].hover.shown==true)
+      StatCompass.buttons[2].scripts.OnLeave(StatCompass.buttons[2])
+      assert(StatCompass.buttons[2].hover.shown==false)
+      StatCompass.buttons[1].scripts.OnClick(StatCompass.buttons[1])
       assert(StatCompass.panel.border.texture==[[Interface\Buttons\WHITE8X8]] and StatCompass.panel.border.color[1]==0.55)
       assert(StatCompass.panel.point[2]==CharacterFrame and StatCompass.panel.point[1]=="TOPLEFT")
       CharacterFrame.right=1800
@@ -125,9 +130,9 @@ def test_panel_columns_spec_tooltip_skin_and_clamp():
       StatCompass.buttons[2].scripts.OnClick(StatCompass.buttons[2])
       assert(StatCompassDB.mode=="mythic" and StatCompass.buttons[2].selected)
       RunCallbacks()
-      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
-      StatCompass.buttons[5].scripts.OnClick(StatCompass.buttons[5])
-      assert(StatCompassDB.mode=="raid" and StatCompassDB.skin=="default")
+      assert(StatCompass.status.text:find("Prio:",1,true))
+      StatCompass.buttons[3].scripts.OnClick(StatCompass.buttons[3])
+      assert(StatCompassDB.mode=="mythic" and StatCompassDB.skin=="default")
     ''')
 
 
@@ -163,15 +168,15 @@ def test_de_locale_column_bounds_and_lazy_attach():
       GetMasteryEffect=function() return 999.9 end
       Fire("PLAYER_LOGIN")
       CharacterFrame:Show(); PaperDollFrame:Show()
-      assert(StatCompass.headers.current.text=="Dein Anteil")
+      assert(StatCompass.rows[1].label.text=="Kritisch")
       for i=1,4 do
         local row=StatCompass.rows[i]
         assert(row.label:GetStringWidth() <= row.label.width)
         assert(row.current:GetStringWidth() <= row.current.width)
-        assert(row.min:GetStringWidth() <= row.min.width)
-        assert(row.max:GetStringWidth() <= row.max.width)
-        assert(row.label.point[4]+row.label.width <= row.current.point[4])
-        assert(row.min.point[4]+row.min.width < row.max.point[4])
+        assert(row.status:GetStringWidth() <= row.status.width)
+        assert(row.target:GetStringWidth() <= row.target.width)
+        assert(row.current.point[4]+row.current.width < row.target.point[4])
+        assert(row.status.point[4]>=0)
       end
       assert(StatCompass.status:GetStringWidth() <= StatCompass.status.width)
     ''')
@@ -224,5 +229,5 @@ def test_secret_api_returns_and_all_relevant_events():
     locale = load_runtime('GetLocale=function() return {secret=true} end')
     run(locale, '''
       Fire("PLAYER_LOGIN")
-      assert(StatCompass.headers.current.text=="Your share")
+      assert(StatCompass.rows[1].label.text=="Crit")
     ''')

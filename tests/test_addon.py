@@ -15,6 +15,10 @@ function Texture:SetWidth(w) self.width=w end
 function Texture:SetHeight(h) self.height=h end
 function Texture:ClearAllPoints() self.point=nil end
 function Texture:SetTexture(value) self.texture=value end
+function Texture:SetGradient(orientation, startColor, endColor)
+  self.gradient={orientation,startColor,endColor}
+end
+function CreateColor(r,g,b,a) return {r=r,g=g,b=b,a=a} end
 function Texture:SetVertexColor(...) self.color={...} end
 function Texture:Show() self.shown=true end
 function Texture:Hide() self.shown=false end
@@ -97,7 +101,8 @@ function Frame:HookScript(name,fn) self.hooks[name]=fn end
 function Frame:RegisterEvent(name) self.events[name]=true end
 function Frame:IsShown() return self.shown end
 function Frame:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
-local function visibilityChanged(frame, before)
+local function visibilityChanged(frame, states)
+  local before=states[frame]
   local after=frame:IsVisible()
   if before ~= after then
     local event=after and "OnShow" or "OnHide"
@@ -105,24 +110,26 @@ local function visibilityChanged(frame, before)
     if frame.hooks[event] then frame.hooks[event](frame) end
   end
   for _,child in ipairs(frame.children or {}) do
-    visibilityChanged(child, child._wasVisible or false)
+    visibilityChanged(child, states)
   end
 end
-local function remember(frame)
-  frame._wasVisible=frame:IsVisible()
-  for _,child in ipairs(frame.children or {}) do remember(child) end
+local function remember(frame, states)
+  states=states or {}
+  states[frame]=frame:IsVisible()
+  for _,child in ipairs(frame.children or {}) do remember(child,states) end
+  return states
 end
 function Frame:Show()
   if self.shown then return end
-  remember(self)
+  local states=remember(self)
   self.shown=true
-  visibilityChanged(self,self._wasVisible)
+  visibilityChanged(self,states)
 end
 function Frame:Hide()
   if not self.shown then return end
-  remember(self)
+  local states=remember(self)
   self.shown=false
-  visibilityChanged(self,self._wasVisible)
+  visibilityChanged(self,states)
 end
 function CreateFrame(kind,name,parent)
   assert(kind=="Frame" or kind=="Button")
@@ -149,8 +156,8 @@ UIParent.SetSize=Frame.SetSize
 UIParent.HookScript=Frame.HookScript
 UIParent.hooks={}
 function UIParent:IsVisible() return self.shown end
-function UIParent:Hide() if not self.shown then return end; for _,child in ipairs(self.children) do remember(child) end; self.shown=false; for _,child in ipairs(self.children) do visibilityChanged(child,child._wasVisible) end end
-function UIParent:Show() if self.shown then return end; for _,child in ipairs(self.children) do remember(child) end; self.shown=true; for _,child in ipairs(self.children) do visibilityChanged(child,child._wasVisible) end end
+function UIParent:Hide() if not self.shown then return end; local states=remember(self); self.shown=false; for _,child in ipairs(self.children) do visibilityChanged(child,states) end end
+function UIParent:Show() if self.shown then return end; local states=remember(self); self.shown=true; for _,child in ipairs(self.children) do visibilityChanged(child,states) end end
 CharacterFrame=CreateFrame("Frame","CharacterFrame",UIParent)
 PaperDollFrame=CreateFrame("Frame","PaperDollFrame",CharacterFrame)
 local tooltipOwner
@@ -214,7 +221,7 @@ def test_toc_load_order_and_initial_show(lua):
       assert(StatCompass.rows[1].current.text=="Unknown")
       assert(StatCompass.rows[3].current.text=="Unknown")
       assert(StatCompass.rows[4].current.text=="Unknown")
-      assert(StatCompass.status.text==StatCompass.Text("shareNoData","enUS"))
+      assert(StatCompass.status.text==StatCompass.Text("targetUnavailable","enUS"))
     ''')
 
 def test_hidden_events_and_visible_burst(lua):
@@ -246,7 +253,7 @@ def test_pending_callback_hide_reopen(lua):
       assert(reads==2)
       RunCallbacks()
       assert(reads==2)
-      assert(widgets.frames==50) -- native controls plus value, marker and four local band hit frames
+      assert(widgets.frames==33) -- four DR label hits retained, no DR graphic hits or reopen allocation
     ''')
 
 def test_settings_and_skins(lua):
@@ -254,7 +261,7 @@ def test_settings_and_skins(lua):
       StatCompassDB={mode="bad",skin="evil",extra="discard"}
       Fire("PLAYER_LOGIN")
       CharacterFrame:Show(); PaperDollFrame:Show()
-      assert(StatCompass.settings.mode=="raid")
+      assert(StatCompass.settings.mode=="mythic")
       StatCompass.SetMode("mythic")
       StatCompass.SetSkin("flat")
       assert(StatCompassDB.mode=="mythic" and StatCompassDB.skin=="flat")
@@ -264,14 +271,14 @@ def test_settings_and_skins(lua):
       StatCompass.SetSkin("flat")
       assert(StatCompass.panel.bg.texture==[[Interface\Buttons\WHITE8X8]])
       StatCompass.ResetSettings()
-      assert(StatCompassDB.mode=="raid" and StatCompassDB.skin=="default")
+      assert(StatCompassDB.mode=="mythic" and StatCompassDB.skin=="default")
     ''')
 
 def test_secret_and_missing_api(lua):
     run(lua, '''
       local secret=setmetatable({secret=true},{__eq=function() error("secret equality") end,__index=function() error("secret index") end})
       StatCompassDB={mode=secret,skin=secret}
-      assert(StatCompass.SanitizeSettings(StatCompassDB).mode=="raid")
+      assert(StatCompass.SanitizeSettings(StatCompassDB).mode=="mythic")
       C_SpecializationInfo=secret
       assert(StatCompass.ReadSpec()==nil)
       GetMasteryEffect=function() return secret end
@@ -341,9 +348,9 @@ def test_spec_event_and_mode_switch(lua):
       RunCallbacks()
       assert(StatCompass.Snapshot().specID==72)
       StatCompass.SetMode("mythic")
-      assert(StatCompassDB.mode=="mythic" and #widgets.callbacks==1)
+      assert(StatCompassDB.mode=="mythic" and #widgets.callbacks==0)
       RunCallbacks()
-      assert(StatCompass.buttons[2].caption.text:find("Mythic"))
+      assert(#StatCompass.buttons==3 and StatCompass.buttons[2].caption.text=="Flat dark")
       PaperDollFrame:Hide()
       local count=widgets.frames
       for i=1,4 do PaperDollFrame:Show(); PaperDollFrame:Hide() end
@@ -373,7 +380,7 @@ def test_hostile_saved_variables_on_real_load():
     ''')
     run(lua, r'''
       Fire("ADDON_LOADED","StatCompass")
-      assert(StatCompassDB.mode=="raid" and StatCompassDB.skin=="flat")
+      assert(StatCompassDB.mode=="mythic" and StatCompassDB.skin=="flat")
       assert(StatCompassDB.unknown==nil)
       Fire("PLAYER_LOGIN")
       CharacterFrame:Show(); PaperDollFrame:Show()

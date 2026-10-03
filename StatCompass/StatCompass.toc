@@ -1,5 +1,6 @@
 ## Interface: 120100
 ## Title: Stat Compass
+## IconTexture: Interface\AddOns\StatCompass\icon
 ## Notes: Character equipment secondary stat comparison
 ## SavedVariables: StatCompassDB
 ## Version: @project-version@

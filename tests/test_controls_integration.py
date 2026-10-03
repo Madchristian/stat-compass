@@ -26,7 +26,7 @@ def test_controls_initialize_before_lazy_character_and_after_savedvariables(init
       Fire("ADDON_LOADED","Blizzard_CharacterUI")
       assert(A.panel and not A.visible)
       A.minimapButton.scripts.OnClick(A.minimapButton,"LeftButton")
-      assert(A.visible and A.buttons[2].selected and A.buttons[3].selected)
+      assert(A.visible and not A.buttons[2].selected and A.buttons[1].selected)
       assert(A.rows[1].current.text=="Unknown")
       assert(A.GetTarget(71,"mythic")==nil)
       local frames=widgets.frames
@@ -59,6 +59,6 @@ def test_minimap_opens_preserved_virtual_coordinate_panel(physical_height):
       assert(px(A.panel,"GetLeft")>=0 and px(A.panel,"GetRight")<=ph*16/9)
       A.minimapButton.scripts.OnClick(A.minimapButton,"RightButton")
       A.options.skin.scripts.OnClick()
-      assert(A.settings.skin=="flat" and A.buttons[4].selected and A.visible)
-      assert(A.rows[1].min.text==A.Text("unknown","enUS"))
+      assert(A.settings.skin=="flat" and A.buttons[2].selected and A.visible)
+      assert(A.rows[1].target.text=="")
     ''')

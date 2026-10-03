@@ -67,8 +67,11 @@ def test_offline_data_builder_rejects_bad_units_and_counts():
         tool.checked(bad, b"synthetic", now=1800000000)
 
 
-def test_package_exact_inventory_and_rebuild_identity():
+def test_package_exact_inventory_and_rebuild_identity(tmp_path, monkeypatch):
     tool = load_tool("package")
+    monkeypatch.setattr(tool, "DIST", tmp_path)
+    monkeypatch.setattr(tool, "ARCHIVE", tmp_path / tool.ARCHIVE.name)
+    monkeypatch.setattr(tool, "MANIFEST", tmp_path / tool.MANIFEST.name)
     tool.build()
     first = tool.ARCHIVE.read_bytes()
     tool.build()
@@ -76,6 +79,8 @@ def test_package_exact_inventory_and_rebuild_identity():
     tool.verify()
     with ZipFile(tool.ARCHIVE) as archive:
         assert archive.namelist() == list(tool.FILES)
+        assert "StatCompass/icon.tga" in archive.namelist()
+        assert archive.read("StatCompass/icon.tga") == (ROOT / "StatCompass/icon.tga").read_bytes()
     toc = (ROOT / "StatCompass/StatCompass.toc").read_text(encoding="utf-8")
     toc_lua = ["StatCompass/" + line for line in toc.splitlines() if line and not line.startswith("##")]
     assert toc_lua == [name for name in tool.FILES if name.endswith(".lua")]

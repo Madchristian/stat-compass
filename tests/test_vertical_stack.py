@@ -10,26 +10,22 @@ CHECK = '''
  end
  assert(top(a.title)>=4)
  gap(a.title,a.spec,4,"title/spec")
- for _,b in ipairs({a.buttons[1],a.buttons[2]}) do
-   gap(a.spec,b,4,"spec/mode")
-   for _,h in pairs(a.headers) do
-     gap(b,h,4,"mode/header")
-     for _,f in ipairs({a.rows[1].label,a.rows[1].current}) do gap(h,f,4,"header/row") end
-   end
- end
+ gap(a.spec,a.rows[1].label,4,"spec/row")
+ assert(#a.buttons==3)
  for i,r in ipairs(a.rows) do
    local trackTop=top(r.track)
-   for _,f in ipairs({r.label,r.current}) do
-     assert(trackTop+(r.track.height-r.markerCurrent.height)/2>=bottom(f)+2-0.001,"heading/through marker")
+   gap(r.label,r.current,2,"stat/own")
+   for _,f in ipairs({r.current,r.target}) do
+     assert(trackTop+(r.track.height-r.outlineTarget.height)/2>=bottom(f)+2-0.001,"heading/through marker")
    end
-   for _,f in ipairs({r.min,r.target,r.max}) do
-     assert(top(f)>=trackTop+(r.track.height+r.markerMax.height)/2+2-0.001,"marker/endpoint")
+   for _,f in ipairs({r.status}) do
+     assert(top(f)>=trackTop+(r.track.height+r.outlineTarget.height)/2+2-0.001,"marker/endpoint")
      if a.rows[i+1] then
        for _,next in ipairs({a.rows[i+1].label,a.rows[i+1].current}) do gap(f,next,2,"endpoint/next row") end
      else gap(f,a.status,4,"last endpoint/footer") end
    end
  end
- for i=3,5 do
+ for i=1,3 do
    gap(a.status,a.buttons[i],4,"status/footer button")
    assert(bottom(a.buttons[i])<=height-4+0.001,"footer/panel")
  end

@@ -1,6 +1,6 @@
-# Minimap and native options candidate
+# Minimap and native options
 
-This implementation is now integrated into the main working tree with the virtual-to-physical panel-coordinate correction preserved. The combined minimap/options candidate has not been installed or exercised in WoW. Fresh independent reviews and real-client acceptance remain pending.
+The controls are integrated with the virtual-to-physical panel-coordinate correction preserved. The user accepted the Guardian panel screenshot and custom icon in the local client. This does not establish all-client, Paladin, combat/taint or performance acceptance, or a public release; remaining checks are in `acceptance.md`.
 
 ## API binding
 
@@ -22,20 +22,20 @@ Paths below are relative to `Interface/AddOns/` at that commit.
 
 ## UX and persistence
 
-- One 32x32 minimap button, client-runtime map icon (`Interface\Icons\INV_Misc_Map_01`), portrait mask, tracking border and zoom highlight. No copied image files or third-party libraries.
+- One 32x32 minimap button uses the bundled custom `StatCompass/icon.tga` through `Interface\AddOns\StatCompass\icon`, with a client-runtime portrait mask, tracking border and zoom highlight. No third-party libraries are required.
 - Left-click opens Character equipment; right-click opens the native Stat Compass AddOns category. The English/German tooltip also explains dragging.
 - Native canvas: existing Default/Flat dark skin choice, minimap visibility, and appearance reset. Settings apply immediately. The inline controls remain available and use the same store.
-- Appearance reset restores Default, visible minimap and angle 225, preserving Raid/Mythic+. The existing inline reset additionally restores Raid.
+- Appearance reset restores Default, visible minimap and angle 225, preserving the collapsed state. The inline reset additionally expands the panel. Both retain the Mythic+-only comparison.
 - `StatCompassDB` is normalized at the addon's own `ADDON_LOADED`, with a login fallback. TOC execution reads defaults but does not replace SavedVariables. Minimap/canvas creation is idempotent and occurs only at initialization, never merely because an unrelated addon loaded.
-- Persist only a validated finite normalized `minimapAngle` and boolean `minimapShown`, alongside `mode` and `skin`. All setters preserve the other validated fields.
+- Persist only a validated finite normalized `minimapAngle` and boolean `minimapShown`, alongside `mode`, `skin` and the sanitized boolean `collapsed`. All setters preserve the other validated fields.
 - Radius follows actual minimap/button geometry: 86 for 140x140 map plus 32x32 button, 106 for 180x180. Invalid/nonpositive dimensions use positive fallbacks. Cursor positions are divided by effective minimap scale. Invalid/secret center/cursor/scale values do not change persistence. Exact-center dragging keeps the previous angle.
 - `OnUpdate` exists only while dragging. Drag stop, icon hide and ancestor hide remove it. Resize and show callbacks reposition the button without polling.
 - No credential fields, network requests or new comparison data. The existing honest no-data notice also appears in native Options.
 
-The icon name was cross-checked against `https://wow.zamimg.com/images/wow/icons/large/inv_misc_map_01.jpg`: HTTP 200, image/jpeg, valid JPEG header. No image was saved or packaged. The initially considered compass name returned 404 from that CDN (the Blizzard render host returned 403); it was rejected. CDN existence does not prove in-client rendering.
+The launcher and TOC use the custom icon, not the earlier map-icon candidate. The PNG artwork remains in `assets/icon/` for repository presentation; the runtime package includes `StatCompass/icon.tga`.
 
 ## Integration and limits
 
-`Controls.lua` is loaded after `UI.lua` in the TOC and included in the exact ten-file package inventory. Integration applied only the initialization event hunks to the current `UI.lua`; the virtual-coordinate geometry code was not replaced. The existing physical-screen mock and all prior tests were retained. Core changes extend the existing store rather than maintaining a second database. Combined tests additionally exercise native category creation before lazy Character-frame loading, both own-ADDON_LOADED and login initialization, authoritative post-TOC SavedVariables, and launcher-to-panel rendering at 1080/1440/2160 physical heights.
+`Controls.lua` is loaded after `UI.lua` in the TOC and included in the exact eleven-file package inventory (including `StatCompass/icon.tga`). Integration applied only the initialization event hunks to the current `UI.lua`; the virtual-coordinate geometry code was not replaced. The existing physical-screen mock and all prior tests were retained. Core changes extend the existing store rather than maintaining a second database. Combined tests additionally exercise native category creation before lazy Character-frame loading, both own-ADDON_LOADED and login initialization, authoritative post-TOC SavedVariables, and launcher-to-panel rendering at 1080/1440/2160 physical heights.
 
-Tests run production Lua through `lupa.lua51`, not a newer backend. The widget harness records native Settings reparent/show lifecycle, mask ownership, clicks, geometry and drag callbacks. It does not verify Blizzard glyph metrics, runtime icon availability, actual mouse drag delivery, combat taint, third-party square minimap layouts, or the separate invisible-panel fix. Real-client checks remain in `acceptance.md`. The circular launcher follows the inscribed map radius; special square-map corner layouts are outside this minimal control.
+Tests run production Lua through `lupa.lua51`, not a newer backend. The widget harness records native Settings reparent/show lifecycle, mask ownership, clicks, geometry and drag callbacks. It does not verify Blizzard glyph metrics, custom icon rendering on other clients, actual mouse drag delivery, combat taint, third-party square minimap layouts, or the separate invisible-panel fix. Real-client checks remain in `acceptance.md`. The circular launcher follows the inscribed map radius; special square-map corner layouts are outside this minimal control.

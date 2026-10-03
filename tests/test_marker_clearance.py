@@ -15,11 +15,11 @@ def test_marker_vertical_clearance(height):
         local trackTop=-row.track.point[5]
         local trackBottom=trackTop+row.track.height
         local headingBottom=-row.label.point[5]+row.label:GetStringHeight()
-        local numbersTop=-row.min.point[5]
-        local minTop=trackTop+(row.track.height-row.markerMin.height)/2
-        local maxBottom=trackTop+(row.track.height+row.markerMax.height)/2
-        local ownTop=trackTop+(row.track.height-row.markerCurrent.height)/2
-        local ownBottom=trackBottom+(row.markerCurrent.height-row.track.height)/2
+        local numbersTop=-row.status.point[5]
+        local minTop=trackTop+(row.track.height-row.markerTarget.height)/2
+        local maxBottom=trackTop+(row.track.height+row.markerTarget.height)/2
+        local ownTop=trackTop+(row.track.height-row.markerTarget.height)/2
+        local ownBottom=trackBottom+(row.markerTarget.height-row.track.height)/2
         assert(minTop>=headingBottom+2, "min marker crosses heading")
         assert(ownTop>=headingBottom+2, "current marker crosses heading")
         assert(maxBottom<=numbersTop-2, "max marker crosses endpoint text")

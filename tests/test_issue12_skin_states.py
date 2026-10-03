@@ -34,11 +34,10 @@ def test_standard_and_flat_button_surfaces_round_trip():
         end
       end
       local function all(native,mode,skin,shown)
-        state(A.buttons[1],mode=="raid",native)
-        state(A.buttons[2],mode=="mythic",native)
-        state(A.buttons[3],skin=="default",native)
-        state(A.buttons[4],skin=="flat",native)
-        state(A.buttons[5],false,native)
+        assert(#A.buttons==3)
+        state(A.buttons[1],skin=="default",native)
+        state(A.buttons[2],skin=="flat",native)
+        state(A.buttons[3],false,native)
         state(A.options.skin,false,native)
         state(A.options.minimap,shown,native)
         state(A.options.reset,false,native)
@@ -46,13 +45,13 @@ def test_standard_and_flat_button_surfaces_round_trip():
       all(true,"raid","default",true)
       A.SetMode("mythic")
       all(true,"mythic","default",true)
-      local other=A.buttons[1]
+      local other=A.buttons[2]
       other.scripts.OnEnter(other)
       assert(other.hover.shown and not other.selection.shown)
       assert(other.hover.layer=="BORDER" and other.hover.color[4]<0.5)
       other.scripts.OnLeave(other)
       assert(not other.hover.shown)
-      local selected=A.buttons[2]
+      local selected=A.buttons[1]
       selected.scripts.OnEnter(selected)
       assert(selected.selection.shown)
       selected.scripts.OnLeave(selected)
@@ -82,7 +81,7 @@ def test_standard_and_flat_button_surfaces_round_trip():
       assert(not reset.hover.shown and not reset.selection.shown)
       reset:Enable()
       assert(not reset.hover.shown and not reset.selection.shown)
-      local panelReset=A.buttons[5]
+      local panelReset=A.buttons[3]
       panelReset.scripts.OnEnter(panelReset)
       assert(panelReset.hover.shown and not panelReset.selection.shown)
       panelReset.scripts.OnLeave(panelReset)
@@ -100,6 +99,6 @@ def test_standard_and_flat_button_surfaces_round_trip():
       all(true,"mythic","default",false)
       A.options.reset.scripts.OnClick()
       all(true,"mythic","default",true)
-      A.buttons[5].scripts.OnClick()
+      A.buttons[3].scripts.OnClick()
       all(true,"raid","default",true)
     ''')

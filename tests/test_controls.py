@@ -112,7 +112,7 @@ def test_registered_native_options_and_minimap_clicks():
       Fire("ADDON_LOADED","StatCompass"); Fire("PLAYER_LOGIN")
       assert(#Settings.categories==1 and widgets.frames==count)
       assert(not canvas.scripts.OnUpdate and not b.scripts.OnUpdate)
-      assert(A.releaseData and A.GetTarget(71,"raid")==nil)
+      assert(A.releaseData and A.GetTarget(71,"mythic")==nil)
     ''')
 
 
@@ -187,7 +187,7 @@ def test_minimap_settings_survive_inline_changes():
       A.SaveSettings({mode="mythic",skin="flat",minimapShown=false,minimapAngle=-90})
       assert(A.settings.minimapShown==false, "minimap visibility must persist")
       assert(A.settings.minimapAngle==270)
-      A.SetMode("raid"); A.SetSkin("default")
+      A.SetMode("mythic"); A.SetSkin("default")
       assert(StatCompassDB.minimapShown==false and StatCompassDB.minimapAngle==270)
       for _,value in ipairs({math.huge,-math.huge,0/0,"bad",{secret=true}}) do
         assert(A.SanitizeSettings({minimapAngle=value}).minimapAngle==225)

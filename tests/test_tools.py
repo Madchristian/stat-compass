@@ -16,7 +16,7 @@ def load_tool(name):
 
 
 def fixture_manifest():
-    rows = [dict(rank=i, id=f"synthetic-{i}", region="EU", mode="raid", specID=71,
+    rows = [dict(rank=i, id=f"synthetic-{i}", region="EU", mode="mythic", specID=71,
                  interface=120100, clientBuild=69933, level=90, unit="percentPoints",
                  semanticKind="masteryEffectPercent", observedAt=1799999000, crit=20, haste=15,
                  mastery=32, versatility=12, critRating=900, hasteRating=700, masteryRating=800,
@@ -24,7 +24,7 @@ def fixture_manifest():
     return dict(interface=120100, clientBuild=69933, level=90, collectedAt=1800000000,
                 observedAt=1799999000, expiresAt=1800001000,
                 sourceURL="https://example.invalid/synthetic-test-only", permission="synthetic-test-only",
-                cohorts=[dict(region="EU", mode="raid", specID=71, interface=120100,
+                cohorts=[dict(region="EU", mode="mythic", specID=71, interface=120100,
                               clientBuild=69933, level=90, unit="percentPoints", semanticKind="masteryEffectPercent",
                               season="synthetic", rankingMetric="synthetic", difficulty="synthetic",
                               partition="synthetic", observedAt=1799999000, selectedCount=50,
@@ -39,7 +39,7 @@ def test_offline_data_builder_rejects_bad_units_and_counts():
     assert "[71]" in tool.lua_value(data)
     lua = LuaRuntime()
     lua.execute("StatCompass={}; StatCompass.releaseData=" + tool.lua_value(data))
-    assert lua.eval("StatCompass.releaseData.cohorts[71].raid.observations[50].rank") == 50
+    assert lua.eval("StatCompass.releaseData.cohorts[71].mythic.observations[50].rank") == 50
     with pytest.raises(ValueError, match="control"):
         tool.lua_value("bad\u0000text")
     encoded = tool.lua_value('Ä "quoted"')

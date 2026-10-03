@@ -286,18 +286,18 @@ def test_secret_and_missing_api(lua):
       local stats=StatCompass.ReadStats()
       assert(stats.mastery==nil and stats.haste==nil)
       GetBuildInfo=function() return nil,nil,nil,secret end
-      assert(StatCompass.GetTarget(71,"raid")==nil)
+      assert(StatCompass.GetTarget(71,"mythic")==nil)
     ''')
 
 def test_dataset_contract_synthetic_nonshipping(lua):
     run(lua, '''
       local data={schema=3,interface=120100,clientBuild=69933,level=90,collectedAt=1800000000,observedAt=1799999000,expiresAt=1800001000,sourceURL="https://example.invalid/synthetic-test-only",rawSHA256=string.rep("a",64),permission="synthetic-test-only",cohorts={}}
-      local cohort={region="EU",mode="raid",specID=71,interface=120100,clientBuild=69933,level=90,unit="percentPoints",semanticKind="masteryEffectPercent",season="synthetic",rankingMetric="synthetic",difficulty="synthetic",partition="synthetic",observedAt=1799999000,selectedCount=50,validCount=50,observations={}}
-      for i=1,50 do cohort.observations[i]={rank=i,id="test-"..i,region="EU",mode="raid",specID=71,interface=120100,clientBuild=69933,level=90,unit="percentPoints",semanticKind="masteryEffectPercent",observedAt=1799999000,crit=20,haste=15,mastery=32,versatility=12,critRating=900,hasteRating=700,masteryRating=800,versatilityRating=400} end
-      data.cohorts[71]={raid=cohort}
+      local cohort={region="EU",mode="mythic",specID=71,interface=120100,clientBuild=69933,level=90,unit="percentPoints",semanticKind="masteryEffectPercent",season="synthetic",rankingMetric="synthetic",difficulty="synthetic",partition="synthetic",observedAt=1799999000,selectedCount=50,validCount=50,observations={}}
+      for i=1,50 do cohort.observations[i]={rank=i,id="test-"..i,region="EU",mode="mythic",specID=71,interface=120100,clientBuild=69933,level=90,unit="percentPoints",semanticKind="masteryEffectPercent",observedAt=1799999000,crit=20,haste=15,mastery=32,versatility=12,critRating=900,hasteRating=700,masteryRating=800,versatilityRating=400} end
+      data.cohorts[71]={mythic=cohort}
       assert(StatCompass.ValidateDataset(data,120100,69933,90,1800000000))
       StatCompass.releaseData=data
-      local target=StatCompass.GetTarget(71,"raid")
+      local target=StatCompass.GetTarget(71,"mythic")
       assert(target.crit==20 and target.mastery==32 and target.sample==50)
       assert(target.band.crit.low==20 and target.band.crit.high==20)
       assert(target.rating.crit.mean==900 and target.rating.haste.min==700 and target.rating.versatility.max==400)
@@ -307,13 +307,13 @@ def test_dataset_contract_synthetic_nonshipping(lua):
       for i=31,50 do cohort.observations[i]=nil end
       cohort.selectedCount=30; cohort.validCount=30
       assert(StatCompass.ValidateDataset(data,120100,69933,90,1800000000))
-      assert(StatCompass.GetTarget(71,"raid").sample==30)
+      assert(StatCompass.GetTarget(71,"mythic").sample==30)
       for i=20,30 do cohort.observations[i]=nil end
       cohort.selectedCount=19; cohort.validCount=19
       assert(not StatCompass.ValidateDataset(data,120100,69933,90,1800000000))
       for i=19,50 do cohort.observations[i]={} for k,v in pairs(cohort.observations[1]) do cohort.observations[i][k]=v end cohort.observations[i].rank=i cohort.observations[i].id="test-"..i end
       cohort.selectedCount=50; cohort.validCount=50
-      assert(StatCompass.GetTarget(71,"mythic")==nil)
+      assert(StatCompass.GetTarget(71,"raid")==nil)        -- Mythic+ is the only mode
       cohort.unit="rating"
       assert(not StatCompass.ValidateDataset(data,120100,69933,90,1800000000))
       cohort.unit="percentPoints"

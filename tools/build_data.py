@@ -68,8 +68,8 @@ def checked(manifest: dict, raw: bytes, *, now: int | None = None) -> dict:
     for cohort in cohorts + hero_cohorts:
         if not isinstance(cohort, dict):
             raise ValueError("cohort must be object")
-        if cohort.get("region") != "EU" or cohort.get("mode") not in ("raid", "mythic"):
-            raise ValueError("requires EU raid or mythic cohort")
+        if cohort.get("region") != "EU" or cohort.get("mode") != "mythic":
+            raise ValueError("requires an EU Mythic+ cohort")
         spec_id = positive_int(cohort.get("specID"), "specID", 1000000)
         for field, expected in (("interface", interface), ("clientBuild", client_build), ("level", level),
                                 ("unit", "percentPoints"), ("semanticKind", "masteryEffectPercent")):

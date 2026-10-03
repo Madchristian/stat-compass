@@ -4,6 +4,7 @@
 ## SavedVariables: StatCompassDB
 ## Version: @project-version@
 ## X-Wago-ID: YK9xO36L
+## X-Curse-Project-ID: 1724016
 Locales.lua
 Data.lua
 Core.lua

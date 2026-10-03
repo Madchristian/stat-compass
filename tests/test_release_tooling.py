@@ -89,6 +89,7 @@ def test_packaging_configuration():
     toc = (ROOT / "StatCompass/StatCompass.toc").read_text(encoding="utf-8")
     assert "## Version: @project-version@" in toc                           # the tag sets the version
     assert "## X-Wago-ID: YK9xO36L" in toc                                   # Wago project
+    assert "## X-Curse-Project-ID: 1724016" in toc                          # CurseForge project
     pkgmeta = (ROOT / ".pkgmeta").read_text(encoding="utf-8")
     assert "package-as: StatCompass" in pkgmeta and "StatCompass/StatCompass: StatCompass" in pkgmeta
     for path in ("tools", "tests", "docs", "changelog", "assets", "AGENTS.md"):

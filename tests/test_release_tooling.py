@@ -88,6 +88,7 @@ def test_release_data_accepts_valid_and_rejects_empty_or_short_lived(tmp_path):
 def test_packaging_configuration():
     toc = (ROOT / "StatCompass/StatCompass.toc").read_text(encoding="utf-8")
     assert "## Version: @project-version@" in toc                           # the tag sets the version
+    assert "## X-Wago-ID: YK9xO36L" in toc                                   # Wago project
     pkgmeta = (ROOT / ".pkgmeta").read_text(encoding="utf-8")
     assert "package-as: StatCompass" in pkgmeta and "StatCompass/StatCompass: StatCompass" in pkgmeta
     for path in ("tools", "tests", "docs", "changelog", "assets", "AGENTS.md"):

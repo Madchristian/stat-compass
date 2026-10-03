@@ -3,6 +3,7 @@
 ## Notes: Character equipment secondary stat comparison
 ## SavedVariables: StatCompassDB
 ## Version: @project-version@
+## X-Wago-ID: YK9xO36L
 Locales.lua
 Data.lua
 Core.lua

@@ -90,6 +90,8 @@ jobs:
           if tops != {"StatCompass"} or missing or stray or data < 100_000:
               sys.exit(f"bad package: tops={tops} missing={missing} stray={stray[:5]} data={data}")
           print(f"{zips[0]}: {len(names)} files, Data.lua {data} bytes")
+          for info in zipfile.ZipFile(zips[0]).infolist():
+              print(f"{info.file_size:>9}  {info.filename}")
           EOF
 
       - name: Keep dry-run package
@@ -98,6 +100,9 @@ jobs:
         with:
           name: stat-compass-dry-run
           path: .release/*.zip
+          # .release is a dot directory, which upload-artifact skips unless told otherwise
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 7
 
       - name: Summary

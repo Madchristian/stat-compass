@@ -537,18 +537,43 @@ class Certifier:
             "exactScores": sum(o["exact"] for o in observations),
             "certified": len(chosen) == target and not open_chars and unseen <= tau}
 
+    def _known(self, char_id, spec_id, hero_id):
+        """True when eligible() for this cohort can answer from caches, without a request."""
+        if hero_id is not None:
+            info = self.heroes.get(char_id)
+            if info is None:
+                return False
+            if info[0] != spec_id or info[1] != hero_id:
+                return True
+        return (char_id, spec_id) in self.checks
+
     def _walk(self, order, spec_id, target, hero_id=None, max_walk=None):
-        """Walk the ranking by lower bound; ineligible players are replaced from further down."""
+        """Walk the ranking by lower bound; ineligible players are replaced from further down.
+
+        Requests are latency-bound (a GitHub runner in the US calling the EU API took ~2-3 s each),
+        so the next unchecked candidates are checked in parallel ahead of the walk. Decisions are
+        still made one by one in ranking order; at most `workers` lookups per walk go unused."""
         picked, excluded, walked = [], {}, 0
-        for c in order:
-            if len(self._item_level_filter(picked, spec_id)) >= target or (max_walk and walked >= max_walk):
-                break
-            walked += 1
-            result = self.eligible(c, spec_id, hero_id)
-            if isinstance(result, dict):
-                picked.append(c)
-            else:
-                excluded[c] = result
+        pool = None
+        try:
+            for i, c in enumerate(order):
+                if len(self._item_level_filter(picked, spec_id)) >= target or (max_walk and walked >= max_walk):
+                    break
+                if not self._known(c, spec_id, hero_id):
+                    room = self.workers if not max_walk else min(self.workers, max_walk - walked)
+                    ahead = [x for x in order[i:i + room] if not self._known(x, spec_id, hero_id)]
+                    if len(ahead) > 1:
+                        pool = pool or ThreadPoolExecutor(self.workers)
+                        list(pool.map(lambda x: self.eligible(x, spec_id, hero_id), ahead))
+                walked += 1
+                result = self.eligible(c, spec_id, hero_id)
+                if isinstance(result, dict):
+                    picked.append(c)
+                else:
+                    excluded[c] = result
+        finally:
+            if pool:
+                pool.shutdown()
         kept = self._item_level_filter(picked, spec_id)
         for c in set(picked) - set(kept):
             excluded[c] = "itemLevel"

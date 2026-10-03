@@ -4,6 +4,22 @@ This file contains the complete public release history. Every version is listed 
 
 Diese Datei enthält die vollständige öffentliche Release-Historie. Jede Version steht genau einmal, zuerst Englisch, danach Deutsch.
 
+## 2026.10.3-2
+
+### English
+
+- During combat, the panel keeps the last readable values from before combat and labels them "Pre-combat snapshot". Stat Compass does not scan new character stats during combat.
+- Validated comparison data is cached. The full dataset is not revalidated during combat; expired or mismatched comparison data stays unavailable.
+- When combat ends, the panel immediately refreshes with current values.
+
+### Deutsch
+
+- Im Kampf zeigt das Panel die letzten lesbaren Werte vor Kampfbeginn mit dem Hinweis „Stand vor Kampf“. Während des Kampfes fragt Stat Compass keine neuen Charakterwerte ab.
+- Bereits geprüfte Vergleichsdaten werden zwischengespeichert. Im Kampf wird der Datensatz nicht erneut vollständig geprüft; abgelaufene oder nicht mehr passende Vergleichsdaten bleiben gesperrt.
+- Nach Kampfende aktualisiert sich das Panel sofort mit den aktuellen Werten.
+
+---
+
 ## 2026.10.3
 
 ### English

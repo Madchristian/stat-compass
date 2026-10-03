@@ -2,7 +2,7 @@
 ## Title: Stat Compass
 ## Notes: Character equipment secondary stat comparison
 ## SavedVariables: StatCompassDB
-## Version: 0.1.0
+## Version: @project-version@
 Locales.lua
 Data.lua
 Core.lua

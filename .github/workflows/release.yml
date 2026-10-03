@@ -1,0 +1,116 @@
+name: Release
+
+# Only tags v* create a release (CalVer, e.g. v2026.10.3). Pushes to main release nothing.
+# workflow_dispatch is a dry run: the packager runs with -d (no upload) and the ZIP is kept as an artifact.
+# CurseForge and Wago import the finished GitHub release through their webhooks; no API tokens here.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create the GitHub release
+  actions: read     # download the data artifact of the latest weekly refresh
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Package and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # full history and tags, so the packager can derive version and changelog from the tag
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: python -m pip install "lupa==2.6" "pytest==8.4.2"
+
+      - name: Quality gate
+        run: python -m pytest -q -p no:cacheprovider
+
+      - name: Changelog gate
+        # A tagged release needs its bilingual pair; CHANGELOG.md must match the generator byte for byte.
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            python tools/generate_changelog.py --check --require "${GITHUB_REF_NAME#v}"
+          else
+            python tools/generate_changelog.py --check
+          fi
+
+      # The repository keeps StatCompass/Data.lua empty. A release ships the Data.lua of the latest
+      # successful weekly refresh, checked with the addon's own runtime before it is packed.
+      - name: Fetch latest refresh data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow refresh-mplus-data.yml --branch main \
+            --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          if [ -z "$run_id" ]; then
+            echo "No successful refresh run on main; nothing to release." >&2
+            exit 1
+          fi
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --pattern 'mplus-data-*' --dir "$RUNNER_TEMP/data"
+          echo "DATA_LUA=$(find "$RUNNER_TEMP/data" -name Data.lua | head -1)" >> "$GITHUB_ENV"
+          echo "DATA_RUN=$run_id" >> "$GITHUB_ENV"
+
+      - name: Check and install release data
+        run: python tools/release_data.py "$DATA_LUA" --min-days 7 --install
+
+      - name: Package and release
+        uses: BigWigsMods/packager@v2
+        with:
+          args: ${{ github.event_name == 'workflow_dispatch' && '-d' || '' }}
+        env:
+          # Provided by the runner. The packager only creates the GitHub release.
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify package
+        run: |
+          python - <<'EOF'
+          import glob, sys, zipfile
+          zips = [z for z in glob.glob(".release/*.zip") if "-nolib" not in z]
+          if len(zips) != 1:
+              sys.exit(f"expected one package, found {zips}")
+          names = zipfile.ZipFile(zips[0]).namelist()
+          tops = {n.split("/", 1)[0] for n in names}
+          required = {f"StatCompass/{f}" for f in ("StatCompass.toc", "Core.lua", "Data.lua", "UI.lua", "Locales.lua", "Controls.lua")}
+          missing = required - set(names)
+          stray = [n for n in names if n.split("/")[1] in ("tools", "tests", "docs", ".github")]
+          data = zipfile.ZipFile(zips[0]).getinfo("StatCompass/Data.lua").file_size if not missing else 0
+          if tops != {"StatCompass"} or missing or stray or data < 100_000:
+              sys.exit(f"bad package: tops={tops} missing={missing} stray={stray[:5]} data={data}")
+          print(f"{zips[0]}: {len(names)} files, Data.lua {data} bytes")
+          EOF
+
+      - name: Keep dry-run package
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stat-compass-dry-run
+          path: .release/*.zip
+          retention-days: 7
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "## Stat Compass release"
+            echo
+            echo "- Trigger: \`${GITHUB_EVENT_NAME}\` on \`${GITHUB_REF_NAME}\`"
+            echo "- Data: refresh run ${DATA_RUN:-none}"
+            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+              echo "- Dry run: nothing uploaded; the package is attached as artifact \`stat-compass-dry-run\`."
+            else
+              echo "- GitHub release created; CurseForge and Wago import it through their webhooks."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

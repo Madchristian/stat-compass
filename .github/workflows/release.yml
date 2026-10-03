@@ -8,23 +8,38 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+  # automatic data releases: refresh-mplus-data.yml tags a commit and calls this workflow
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      data_artifact:
+        description: "Data artifact of the calling run (mplus-data-N)"
+        type: string
+        required: true
 
 permissions:
   contents: write   # create the GitHub release
   actions: read     # download the data artifact of the latest weekly refresh
-
-concurrency:
-  group: release
-  cancel-in-progress: false
 
 jobs:
   package:
     name: Package and release
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    env:
+      # set by a workflow_call; empty for tag pushes and manual dry runs
+      CALL_TAG: ${{ inputs.tag }}
+      # a manual run of this workflow is a dry run; a tag push or a workflow_call publishes
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.tag == '' }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.tag || github.ref }}
           # full history and tags, so the packager can derive version and changelog from the tag
           fetch-depth: 0
 
@@ -41,15 +56,25 @@ jobs:
       - name: Changelog gate
         # A tagged release needs its bilingual pair; CHANGELOG.md must match the generator byte for byte.
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            python tools/generate_changelog.py --check --require "${GITHUB_REF_NAME#v}"
+          tag="$CALL_TAG"
+          if [ -z "$tag" ] && [ "$GITHUB_REF_TYPE" = "tag" ]; then tag="$GITHUB_REF_NAME"; fi
+          if [ -n "$tag" ]; then
+            python tools/generate_changelog.py --check --require "${tag#v}"
           else
             python tools/generate_changelog.py --check
           fi
 
       # The repository keeps StatCompass/Data.lua empty. A release ships the Data.lua of the latest
       # successful weekly refresh, checked with the addon's own runtime before it is packed.
+      - name: Fetch data of the calling run
+        if: ${{ inputs.data_artifact != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.data_artifact }}
+          path: ${{ runner.temp }}/data
+
       - name: Fetch latest refresh data
+        if: ${{ inputs.data_artifact == '' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -64,12 +89,14 @@ jobs:
           echo "DATA_RUN=$run_id" >> "$GITHUB_ENV"
 
       - name: Check and install release data
-        run: python tools/release_data.py "$DATA_LUA" --min-days 7 --install
+        run: |
+          DATA_LUA="${DATA_LUA:-$(find "$RUNNER_TEMP/data" -name Data.lua | head -1)}"
+          python tools/release_data.py "$DATA_LUA" --min-days 7 --install
 
       - name: Package and release
         uses: BigWigsMods/packager@v2
         with:
-          args: ${{ github.event_name == 'workflow_dispatch' && '-d' || '' }}
+          args: ${{ env.DRY_RUN == 'true' && '-d' || '' }}
         env:
           # Provided by the runner. The packager only creates the GitHub release.
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
@@ -95,7 +122,7 @@ jobs:
           EOF
 
       - name: Keep dry-run package
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ env.DRY_RUN == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: stat-compass-dry-run
@@ -113,7 +140,7 @@ jobs:
             echo
             echo "- Trigger: \`${GITHUB_EVENT_NAME}\` on \`${GITHUB_REF_NAME}\`"
             echo "- Data: refresh run ${DATA_RUN:-none}"
-            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$DRY_RUN" = "true" ]; then
               echo "- Dry run: nothing uploaded; the package is attached as artifact \`stat-compass-dry-run\`."
             else
               echo "- GitHub release created; CurseForge and Wago import it through their webhooks."

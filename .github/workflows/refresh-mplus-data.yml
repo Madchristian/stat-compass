@@ -1,10 +1,14 @@
 name: Refresh M+ cohort data
 
-# Weekly, after the EU weekly reset (Wednesday 04:00 UTC), so the previous week is complete.
+# Daily scheduler. The plan job decides what runs:
+# - the data refresh runs every Wednesday (after the EU weekly reset at 04:00 UTC), on manual
+#   dispatch, and whenever an automatic data release is due;
+# - an automatic data release (issue #10) needs the repository variable AUTO_DATA_RELEASE=true and
+#   at least 120 hours since the last published release. The first release is always made by hand.
 # Closed weeks are cached as an aggregated state; only the current week is fetched again.
 on:
   schedule:
-    - cron: "30 6 * * 3"
+    - cron: "30 6 * * *"
   workflow_dispatch:
     inputs:
       full_scan:
@@ -20,7 +24,45 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      refresh: ${{ steps.plan.outputs.refresh }}
+      release_due: ${{ steps.plan.outputs.release_due }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "lupa==2.6"
+      - name: Decide
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTO: ${{ vars.AUTO_DATA_RELEASE == 'true' }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=30" > "$RUNNER_TEMP/releases.json"
+          due="$(python tools/data_release.py due --releases "$RUNNER_TEMP/releases.json")"
+          echo "cadence: $due"
+          release_due=false
+          if [ "$AUTO" = "true" ] && echo "$due" | grep -q '"due": true'; then release_due=true; fi
+          refresh=false
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [ "$(date -u +%u)" = "3" ] || [ "$release_due" = "true" ]; then
+            refresh=true
+          fi
+          echo "refresh=$refresh" >> "$GITHUB_OUTPUT"
+          echo "release_due=$release_due" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Plan"
+            echo "- automatic data releases: \`${AUTO}\`"
+            echo "- cadence: \`${due}\`"
+            echo "- refresh: \`${refresh}\`, data release due: \`${release_due}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   refresh:
+    needs: plan
+    if: ${{ needs.plan.outputs.refresh == 'true' }}
     runs-on: ubuntu-latest
     # the first full scan ran past 60 minutes on a GitHub runner; incremental weeks need far less
     timeout-minutes: 120
@@ -88,3 +130,68 @@ jobs:
           name: mplus-data-${{ github.run_number }}
           path: ${{ env.OUT_DIR }}
           retention-days: 30
+
+  # Commits the data release changelog to main and tags it. Every check is fail-closed:
+  # tools/release_gate.py refuses on a missing or unverified previous release, low coverage,
+  # identity keys in Data.lua, API errors, data valid for less than 7 days or not yet 120 hours.
+  data-release:
+    needs: [plan, refresh]
+    if: ${{ needs.plan.outputs.release_due == 'true' && needs.refresh.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "lupa==2.6"
+      - uses: actions/download-artifact@v4
+        with:
+          name: mplus-data-${{ github.run_number }}
+          path: ${{ runner.temp }}/data
+      - name: Gate and changelog
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=30" > "$RUNNER_TEMP/releases.json"
+          git tag -l 'v*' > "$RUNNER_TEMP/tags.txt"
+          result="$(python tools/data_release.py prepare --releases "$RUNNER_TEMP/releases.json" \
+            --report "$RUNNER_TEMP/data/report.json" --data "$RUNNER_TEMP/data/Data.lua" \
+            --tags "$RUNNER_TEMP/tags.txt" --sha "$GITHUB_SHA")"
+          echo "$result"
+          tag="$(python -c "import json,sys; r=json.loads(sys.argv[1]); print(r.get('tag', '') if r['release'] else '')" "$result")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Commit changelog and tag
+        if: ${{ steps.prepare.outputs.tag != '' }}
+        env:
+          TAG: ${{ steps.prepare.outputs.tag }}
+        run: |
+          python tools/generate_changelog.py
+          python tools/generate_changelog.py --check --require "${TAG#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add changelog CHANGELOG.md
+          git commit -m "Data release $TAG"
+          # fails when main moved on since the run started: no tag, no release
+          git push origin "HEAD:refs/heads/main"
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"
+
+  # A tag pushed with GITHUB_TOKEN does not start other workflows, so the release is called directly.
+  publish:
+    needs: data-release
+    if: ${{ needs.data-release.outputs.tag != '' }}
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.data-release.outputs.tag }}
+      data_artifact: mplus-data-${{ github.run_number }}

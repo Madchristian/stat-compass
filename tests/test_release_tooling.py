@@ -96,3 +96,7 @@ def test_packaging_configuration():
     assert "tags:\n      - 'v*'" in workflow and "BigWigsMods/packager@v2" in workflow
     assert "release_data.py" in workflow and "--require" in workflow
     assert "CF_API_KEY" not in workflow and "WAGO_API_TOKEN" not in workflow  # hosts import via webhook
+    assert "workflow_call:" in workflow and "inputs.tag || github.ref" in workflow
+    refresh = (ROOT / ".github/workflows/refresh-mplus-data.yml").read_text(encoding="utf-8")
+    assert "vars.AUTO_DATA_RELEASE == 'true'" in refresh                     # off unless the owner enables it
+    assert "uses: ./.github/workflows/release.yml" in refresh and "tools/data_release.py prepare" in refresh

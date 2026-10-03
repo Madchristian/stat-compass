@@ -2,7 +2,7 @@
 
 ## Main-tree integration evidence (current)
 
-Integrated into `C:/Users/Christian/orca/stat-compass` without live-addon, WTF, release automation, commit, push, or GitHub writes. The original main suite returned **93 passed in 0.45s** (one pytest cache-permission warning); subsequent runs disabled that cache. Applying the eight candidate control tests alone first returned **8 failed in 0.31s**, including missing category/launcher, discarded minimap settings, premature SavedVariables replacement, and stale documentation. Applying the remaining narrow candidate patch hunks returned **101 passed in 0.62s**.
+Integrated into `<repository>` without live-addon, WTF, release automation, commit, push, or GitHub writes. The original main suite returned **93 passed in 0.45s** (one pytest cache-permission warning); subsequent runs disabled that cache. Applying the eight candidate control tests alone first returned **8 failed in 0.31s**, including missing category/launcher, discarded minimap settings, premature SavedVariables replacement, and stale documentation. Applying the remaining narrow candidate patch hunks returned **101 passed in 0.62s**.
 
 Five additional combined-candidate verification cases exercise lazy Character loading, authoritative SavedVariables after TOC execution, own ADDON_LOADED and login fallback initialization, and minimap opening into the preserved 768-high virtual viewport at physical heights 1080/1440/2160. These verify existing merged behavior, not newly fixed defects. The full suite returned **106 passed in 0.54s**, exit 0, using `.venv/Scripts/python.exe -m pytest -q -p no:cacheprovider`.
 
@@ -18,7 +18,7 @@ The following records the predecessor only; its counts and ZIP hash are not the 
 
 Candidate: isolated copy of tracked and nonignored untracked working-tree source, selected with `git ls-files --cached --others --exclude-standard`. No main-repository, live-addon, WTF, credential, release configuration, GitHub, commit or push changes were made by this task. The concurrently investigated visibility fix is not included.
 
-Python used: `C:/Users/Christian/orca/stat-compass/.venv/Scripts/python.exe`. Commands ran with the scratch candidate as working directory.
+Python used: `<repository>/.venv/Scripts/python.exe`. Commands ran with the scratch candidate as working directory.
 
 ## Actual TDD evidence
 

@@ -27,6 +27,25 @@ Die Version im Spiel kommt aus dem Tag: In der TOC steht `## Version: @project-v
 
 Im Repository bleibt `StatCompass/Data.lua` leer. Erst der Release-Workflow lädt das Artefakt des letzten erfolgreichen Wochenlaufs und packt dessen `Data.lua` ein. Blizzard erlaubt API-Daten höchstens 30 Tage, deshalb verfallen sie auch im Addon nach 30 Tagen. Ohne neuen Release zeigt Stat Compass danach keine Vergleichswerte mehr. Spätestens alle drei Wochen braucht es also einen Release. Die automatische Variante ist #10.
 
+## Automatische Daten-Releases
+
+`refresh-mplus-data.yml` läuft täglich. Ein kurzer Planungsschritt entscheidet, was passiert:
+
+- Der Datenlauf startet jeden Mittwoch, bei manuellem Start und immer dann, wenn ein Daten-Release fällig ist.
+- Ein Daten-Release ist fällig, wenn die Repository-Variable `AUTO_DATA_RELEASE` auf `true` steht und der letzte veröffentlichte Release mindestens 120 Stunden alt ist.
+
+Ist ein Release fällig und der Datenlauf erfolgreich, prüft `tools/data_release.py` mit `tools/release_gate.py`, ob alle Voraussetzungen erfüllt sind. Fehlt eine davon, gibt es keinen Release:
+
+- Der letzte Release ist veröffentlicht und hat ein ZIP.
+- Mindestens 35 Spezialisierungen haben Daten.
+- Die API hat nur mit 200 oder 404 geantwortet; Netzwerk-Wiederholungen sind erlaubt.
+- In der `Data.lua` stehen keine Spielernamen oder Realms.
+- Die Daten bleiben mindestens 7 Tage gültig.
+
+Danach schreibt der Workflow ein zweisprachiges Changelog-Paar („Datenaktualisierung“), committet es nach `main`, setzt den Tag (`v<Datum>`, bei einem zweiten Release am selben Tag `-2`) und ruft `release.yml` auf. Das läuft genauso wie bei einem Release von Hand, nur mit den Daten genau dieses Laufs.
+
+Den ersten Release machst du immer selbst per Tag. Ohne einen veröffentlichten Release lehnt das Gate ab. Eingeschaltet wird die Automatik unter Settings → Secrets and variables → Actions → Variables mit `AUTO_DATA_RELEASE` = `true`. Laut #10 erst nach der Abnahme im Spiel.
+
 ## Probelauf
 
 Unter Actions → `Release` → `Run workflow` läuft alles wie bei einem echten Release, nur mit `-d`: Hochgeladen wird nichts, das fertige ZIP liegt als Artefakt `stat-compass-dry-run` bei.

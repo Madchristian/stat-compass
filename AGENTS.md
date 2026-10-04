@@ -14,8 +14,10 @@ Berührt eine Aufgabe die Dateien einer anderen Rolle, setzt du sie nicht selbst
 
 ## Arbeitsplatz
 
-- **Jeder Agent arbeitet in seinem eigenen Git-Worktree.** Der UI-Agent z. B. unter `C:\Users\Christian\orca\workspaces\stat-compass\UI-optimierungen`. Im Worktree eines anderen Agenten wechselst du nie den Branch und änderst keine Dateien.
-- Kurzlebige Hilfs-Worktrees legst du außerhalb des Repos an und entfernst sie nach dem Merge (`git worktree remove`).
+- **Jeder Agent arbeitet in seinem eigenen Git-Worktree**, angelegt unter `C:\Users\Christian\orca\workspaces\stat-compass\<aufgabe>`. Im Worktree eines anderen Agenten wechselst du nie den Branch und änderst keine Dateien.
+- Kurzlebige Hilfs-Worktrees legst du außerhalb des Repos an.
+- **Nach dem Merge räumt jeder Agent seine eigenen Worktrees weg** (`git worktree remove`). Verworfene Lösungsvarianten bleiben nicht als ungenutzte Worktrees liegen: Entweder kommen sie per PR nach `main`, oder sie werden entfernt. Nicht committete Stände, die erhalten bleiben sollen, kommen vorher als Patch nach `C:\Users\Christian\orca\workspaces\stat-compass\_worktree-backups-<datum>`.
+- Head-Branches löscht GitHub nach dem Merge automatisch (Repo-Einstellung). Lokale Branches löschst du mit `git branch -d`, sobald sie in `main` sind.
 - Temporäre Dateien, Rohdaten und Logs liegen im Scratch-Ordner des Agenten, nie im Repo.
 
 ## Branches, Commits, Pull Requests

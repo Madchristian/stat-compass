@@ -1,6 +1,6 @@
 # Releases
 
-Releases laufen wie bei weekly-alt-tracker und FolioSwap: Ein Tag `v<CalVer>` startet `.github/workflows/release.yml`. Der BigWigs-Packager baut daraus das ZIP und legt ein GitHub-Release an. CurseForge und Wago holen sich dieses Release über ihre Webhooks. Im Repository liegen dafür keine API-Tokens.
+Releases laufen wie bei weekly-alt-tracker und FolioSwap: Ein Tag `v<CalVer>` startet `.github/workflows/release.yml`. Der BigWigs-Packager baut daraus das ZIP und legt ein GitHub-Release an. Wago holt sich dieses Release über seinen Webhook, CurseForge bekommt dasselbe Paket per API-Upload (`CF_API_KEY`).
 
 ## Ablauf eines Release
 
@@ -25,7 +25,7 @@ Die Version im Spiel kommt aus dem Tag: In der TOC steht `## Version: @project-v
 
 ## Daten im Release
 
-Im Repository bleibt `StatCompass/Data.lua` leer. Erst der Release-Workflow lädt das Artefakt des letzten erfolgreichen Wochenlaufs und packt dessen `Data.lua` ein. Blizzard erlaubt API-Daten höchstens 30 Tage, deshalb verfallen sie auch im Addon nach 30 Tagen. Ohne neuen Release zeigt Stat Compass danach keine Vergleichswerte mehr. Spätestens alle drei Wochen braucht es also einen Release. Die automatische Variante ist #10.
+Im Repository bleibt `StatCompass/Data.lua` leer. Erst der Release-Workflow lädt das Artefakt des jüngsten erfolgreichen Datenlaufs, der noch eines hat (reine Planungsläufe werden übersprungen), und packt dessen `Data.lua` ein. Blizzard erlaubt API-Daten höchstens 30 Tage, deshalb verfallen sie auch im Addon nach 30 Tagen. Ohne neuen Release zeigt Stat Compass danach keine Vergleichswerte mehr. Spätestens alle drei Wochen braucht es also einen Release. Die automatische Variante ist #10.
 
 ## Automatische Daten-Releases
 

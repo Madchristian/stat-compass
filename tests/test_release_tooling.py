@@ -149,3 +149,18 @@ def test_package_check_runs_before_publishing(tmp_path):
     assert workflow.index("Build package (no upload)") < workflow.index("Verify package") < workflow.index("- name: Publish")
     build_step = workflow[workflow.index("Build package (no upload)"):workflow.index("Verify package")]
     assert "args: -d" in build_step and "CF_API_KEY" not in build_step   # the check runs before any upload
+
+
+def test_release_picks_the_newest_run_that_still_has_data():
+    tool = load_tool("pick_data_run")
+    runs = [{"id": 30, "conclusion": "success", "head_branch": "main"},     # plan-only scheduler, no data
+            {"id": 29, "conclusion": "success", "head_branch": "feature"},  # not main
+            {"id": 28, "conclusion": "success", "head_branch": "main"},     # artifact expired
+            {"id": 27, "conclusion": "success", "head_branch": "main"}]
+    artifacts = {30: [], 28: [{"name": "mplus-data-6", "expired": True}],
+                 27: [{"name": "other", "expired": False}, {"name": "mplus-data-5", "expired": False}]}
+    assert tool.pick(runs, artifacts.get) == (27, "mplus-data-5", [30, 28])
+    with pytest.raises(LookupError, match="no successful refresh run"):
+        tool.pick(runs[:1], artifacts.get)
+    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert "tools/pick_data_run.py" in workflow and "--limit 1" not in workflow

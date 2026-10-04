@@ -79,13 +79,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow refresh-mplus-data.yml --branch main \
-            --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
-          if [ -z "$run_id" ]; then
-            echo "No successful refresh run on main; nothing to release." >&2
-            exit 1
-          fi
-          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --pattern 'mplus-data-*' --dir "$RUNNER_TEMP/data"
+          # newest successful run that still has a data artifact; plan-only scheduler runs have none (#42)
+          picked="$(python tools/pick_data_run.py --repo "$GITHUB_REPOSITORY")"
+          run_id="${picked%% *}"
+          artifact="${picked#* }"
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "$RUNNER_TEMP/data"
           echo "DATA_LUA=$(find "$RUNNER_TEMP/data" -name Data.lua | head -1)" >> "$GITHUB_ENV"
           echo "DATA_RUN=$run_id" >> "$GITHUB_ENV"
 

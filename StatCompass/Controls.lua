@@ -8,14 +8,54 @@ local function positive(value, fallback)
   if finite(value) and value > 0 then return value end
   return fallback
 end
+local BORDER_SIZE, MINIMAP_GAP = 53, 3
+-- Rounded quadrants in GetMinimapShape order: SE, SW, NE, NW.
+local roundedQuadrants = {
+  ROUND={true,true,true,true}, SQUARE={false,false,false,false},
+  ["CORNER-TOPLEFT"]={false,false,false,true},
+  ["CORNER-TOPRIGHT"]={false,false,true,false},
+  ["CORNER-BOTTOMLEFT"]={false,true,false,false},
+  ["CORNER-BOTTOMRIGHT"]={true,false,false,false},
+  ["SIDE-LEFT"]={false,true,false,true}, ["SIDE-RIGHT"]={true,false,true,false},
+  ["SIDE-TOP"]={false,false,true,true}, ["SIDE-BOTTOM"]={true,true,false,false},
+  ["TRICORNER-TOPLEFT"]={false,true,true,true},
+  ["TRICORNER-TOPRIGHT"]={true,false,true,true},
+  ["TRICORNER-BOTTOMLEFT"]={true,true,false,true},
+  ["TRICORNER-BOTTOMRIGHT"]={true,true,true,false},
+}
 local function position()
   local b = A.minimapButton
   if not b then return end
-  local radius = math.min(positive(Minimap:GetWidth(),140), positive(Minimap:GetHeight(),140))/2
-    + math.max(positive(b:GetWidth(),32), positive(b:GetHeight(),32))/2
+  -- SetPoint offsets use the button's units, even with an independent scale.
+  local scale = positive(Minimap:GetEffectiveScale(),1)/positive(b:GetEffectiveScale(),1)
+  local w = positive(Minimap:GetWidth(),140)*scale/2
+  local h = positive(Minimap:GetHeight(),140)*scale/2
+  local bw, bh = positive(b:GetWidth(),32)/2, positive(b:GetHeight(),32)/2
   local radians = math.rad(A.settings.minimapAngle)
+  local x, y = math.cos(radians), math.sin(radians)
+  -- TrackingBorder is TOPLEFT anchored: its full envelope extends right/down.
+  local insetX = (x >= 0 and bw or math.max(bw,BORDER_SIZE-bw)) + MINIMAP_GAP
+  local insetY = (y >= 0 and math.max(bh,BORDER_SIZE-bh) or bh) + MINIMAP_GAP
+  local dx, dy = math.abs(x), math.abs(y)
+  local radius = math.min(dx > 0 and (w+insetX)/dx or math.huge,
+    dy > 0 and (h+insetY)/dy or math.huge)
+  local shape = type(GetMinimapShape) == "function" and GetMinimapShape() or "ROUND"
+  local quadrants = roundedQuadrants[shape] or roundedQuadrants.ROUND
+  local quadrant = 1 + (x < 0 and 1 or 0) + (y > 0 and 2 or 0)
+  if quadrants[quadrant] then
+    -- Find the first non-overlapping rectangle on the saved angular ray.
+    -- Ellipse distance also covers non-square round minimap frames.
+    local low, high = 0, radius
+    for _ = 1, 32 do
+      local mid = (low+high)/2
+      local nx = math.max(0,dx*mid-insetX)/w
+      local ny = math.max(0,dy*mid-insetY)/h
+      if nx*nx+ny*ny < 1 then low = mid else high = mid end
+    end
+    radius = high
+  end
   b:ClearAllPoints()
-  b:SetPoint("CENTER", Minimap, "CENTER", math.cos(radians)*radius, math.sin(radians)*radius)
+  b:SetPoint("CENTER", Minimap, "CENTER", x*radius, y*radius)
 end
 local function dragUpdate()
   local scale = Minimap:GetEffectiveScale()
@@ -102,7 +142,7 @@ function A.InitializeControls()
     b.icon:SetTexture("Interface\\AddOns\\StatCompass\\icon")
     b.icon:SetMask("Interface\\CharacterFrame\\TempPortraitAlphaMask")
     local border = b:CreateTexture(nil,"OVERLAY")
-    border:SetSize(53,53)
+    border:SetSize(BORDER_SIZE,BORDER_SIZE)
     border:SetPoint("TOPLEFT",b,"TOPLEFT",0,0)
     border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
     b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
@@ -128,6 +168,9 @@ function A.InitializeControls()
     b:SetScript("OnHide",function(self) stopDrag(self); if A.TooltipIsOwned(self) then GameTooltip:Hide() end end)
     b:SetScript("OnShow",position)
     Minimap:HookScript("OnSizeChanged",position)
+    b:HookScript("OnSizeChanged",position)
+    hooksecurefunc(Minimap,"SetScale",position)
+    hooksecurefunc(b,"SetScale",position)
     A.minimapButton = b
   end
   A.RefreshControls()

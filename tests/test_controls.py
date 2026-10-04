@@ -90,7 +90,7 @@ def test_registered_native_options_and_minimap_clicks():
       assert(b:GetWidth()==32 and b:GetHeight()==32)
       assert(b.icon.width==22 and b.icon.height==22)
       assert(b.icon.mask==[[Interface\CharacterFrame\TempPortraitAlphaMask]])
-      assert(math.abs(b.point[4]-86)<0.00001 and b.point[5]==0)
+      assert(math.abs(b.point[4]-89)<0.00001 and b.point[5]==0)
       b.scripts.OnClick(b,"LeftButton")
       assert(A.visible and widgets.characterOpens==1)
       b.scripts.OnClick(b,"LeftButton")
@@ -122,10 +122,11 @@ def test_drag_scaled_geometry_cleanup_and_persistence():
       Fire("ADDON_LOADED","StatCompass")
       local A=StatCompass; local b=A.minimapButton
       assert(b.drags and b.drags[1]=="LeftButton", "launcher must support drag")
+      -- Check clearance of the asymmetric border envelope at the saved 225 degrees.
       Minimap:SetSize(180,180)
-      assert(math.abs(math.sqrt(b.point[4]^2+b.point[5]^2)-106)<0.00001)
+      assert(math.abs((-b.point[4]-40)^2+(-b.point[5]-19)^2-90^2)<0.00001)
       Minimap:SetSize(0,0)
-      assert(math.abs(math.sqrt(b.point[4]^2+b.point[5]^2)-86)<0.00001)
+      assert(math.abs((-b.point[4]-40)^2+(-b.point[5]-19)^2-70^2)<0.00001)
       Minimap:SetSize(140,140); Minimap:SetScale(0.5)
       GetCursorPosition=function() return 50,100 end
       b.scripts.OnDragStart(b)

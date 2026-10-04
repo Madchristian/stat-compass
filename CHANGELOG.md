@@ -4,6 +4,20 @@ This file contains the complete public release history. Every version is listed 
 
 Diese Datei enthält die vollständige öffentliche Release-Historie. Jede Version steht genau einmal, zuerst Englisch, danach Deutsch.
 
+## 2026.10.4
+
+### English
+
+- The minimap button now stays fully outside the map, including its border, with a small gap. This also works with square minimaps and shapes with mixed round and square corners.
+- Dragging follows the outer edge. The saved angle is preserved, and the position adjusts when the minimap is resized or scaled.
+
+### Deutsch
+
+- Das Minimap-Symbol sitzt jetzt einschließlich seines Rahmens mit kleinem Abstand vollständig außerhalb der Karte. Das gilt auch für eckige Minimaps und Formen mit runden und eckigen Ecken.
+- Beim Ziehen folgt das Symbol dem äußeren Rand. Der gespeicherte Winkel bleibt erhalten; bei Größen- und Skalierungsänderungen passt sich die Position an.
+
+---
+
 ## 2026.10.3-2
 
 ### English

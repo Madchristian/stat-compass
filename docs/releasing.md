@@ -29,10 +29,16 @@ Im Repository bleibt `StatCompass/Data.lua` leer. Erst der Release-Workflow läd
 
 ## Automatische Daten-Releases
 
-`refresh-mplus-data.yml` läuft täglich. Ein kurzer Planungsschritt entscheidet, was passiert:
+Nutzerentscheidung vom 07.10.2026 ([#44](https://github.com/Madchristian/stat-compass/issues/44)): Eine neue Version soll zu jeder EU-Reset-Woche erscheinen. Das ersetzt den bisherigen Mindestabstand von 120 Stunden aus #10.
 
-- Der Datenlauf startet jeden Mittwoch, bei manuellem Start und immer dann, wenn ein Daten-Release fällig ist.
-- Ein Daten-Release ist fällig, wenn die Repository-Variable `AUTO_DATA_RELEASE` auf `true` steht und der letzte veröffentlichte Release mindestens 120 Stunden alt ist.
+`refresh-mplus-data.yml` hat täglich drei Startgelegenheiten: 06:47, 12:47 und 18:47 UTC. Ein kurzer Planungsschritt entscheidet, was passiert:
+
+- Das Release-Fenster beginnt jeden Mittwoch um 06:30 UTC, nach dem EU-Reset. Ein Daten-Release ist fällig, wenn `AUTO_DATA_RELEASE=true` gesetzt ist und der letzte veröffentlichte Release vor diesem Fenster liegt. Auch ein Release am Vortag verhindert die neue Wochenversion nicht.
+- Ein fehlender Wochenrelease bleibt fällig, bis er erfolgreich veröffentlicht wurde. Ein verspäteter Start am Donnerstag holt ihn nach. Die weiteren geplanten Starts derselben Woche überspringen Datenabruf und Veröffentlichung.
+- Ein manueller Start führt den Datenabruf immer aus. Er veröffentlicht nur, wenn eine Wochenversion fehlt und die Automatik eingeschaltet ist.
+- Bei ausgeschalteter Automatik wird nur der wöchentliche Datenabruf nachgeholt. Das Artefakt des letzten erfolgreichen Datenlaufs verhindert wiederholte Abrufe derselben Woche.
+
+GitHub kann geplante Starts verzögern oder auslassen. Die drei Startgelegenheiten verringern die Abhängigkeit von einem einzelnen Trigger; eine feste Startzeit ist damit nicht garantiert. Die Jobs sind serialisiert, damit mehrere nachgelieferte Trigger keine gleichzeitigen Abrufe starten. Im Planungsbericht stehen die Entscheidung und das nächste Release-Fenster. Siehe [GitHub-Dokumentation](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#scheduled-workflows-running-at-unexpected-times).
 
 Ist ein Release fällig und der Datenlauf erfolgreich, prüft `tools/data_release.py` mit `tools/release_gate.py`, ob alle Voraussetzungen erfüllt sind. Fehlt eine davon, gibt es keinen Release:
 

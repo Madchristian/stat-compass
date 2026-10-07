@@ -164,3 +164,23 @@ def test_release_picks_the_newest_run_that_still_has_data():
         tool.pick(runs[:1], artifacts.get)
     workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     assert "tools/pick_data_run.py" in workflow and "--limit 1" not in workflow
+
+
+@pytest.mark.parametrize("has_data, expected", [(True, "1791355620"), (False, "0")])
+def test_refresh_timestamp_skips_plan_only_runs(tmp_path, monkeypatch, capsys, has_data, expected):
+    import sys
+    tool = load_tool("pick_data_run")
+    responses = {
+        "repos/synthetic/repo/actions/workflows/refresh-mplus-data.yml/runs?branch=main&status=success&per_page=30": {
+            "workflow_runs": [
+                {"id": 30, "conclusion": "success", "head_branch": "main", "created_at": "2026-10-08T12:00:00Z"},
+                {"id": 29, "conclusion": "success", "head_branch": "main", "created_at": "2026-10-07T06:47:00Z"},
+            ]},
+        "repos/synthetic/repo/actions/runs/30/artifacts": {"artifacts": []},
+        "repos/synthetic/repo/actions/runs/29/artifacts": {
+            "artifacts": [{"name": "mplus-data-29", "expired": False}] if has_data else []},
+    }
+    monkeypatch.setattr(tool, "_gh", responses.__getitem__)
+    monkeypatch.setattr(sys, "argv", ["pick_data_run.py", "--repo", "synthetic/repo", "--timestamp"])
+    tool.main()
+    assert capsys.readouterr().out.strip() == expected

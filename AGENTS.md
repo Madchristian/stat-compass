@@ -77,7 +77,7 @@ Berührt eine Aufgabe die Dateien einer anderen Rolle, setzt du sie nicht selbst
 ## GitHub Actions
 
 - **`Tests`:** bei jedem PR und jedem Push auf `main`. Muss vor dem Merge grün sein.
-- **`Refresh M+ cohort data`:** jeden Mittwoch 06:30 UTC und manuell. Er nutzt den inkrementellen Zustand der abgeschlossenen Wochen aus dem Actions-Cache und lädt als Artefakt Report, Beobachtungen und eine `Data.lua`-Kandidatin hoch, alles ohne Identitäten.
+- **`Refresh M+ cohort data`:** Planung täglich um 06:47, 12:47 und 18:47 UTC; das Wochenfenster beginnt mittwochs um 06:30 UTC. Fehlende Wochenläufe werden nachgeholt, erfolgreiche Veröffentlichungen verhindern weitere geplante Datenabrufe derselben Woche. Manuelle Starts rufen Daten immer neu ab. Der Workflow nutzt den inkrementellen Zustand der abgeschlossenen Wochen aus dem Actions-Cache und lädt als Artefakt Report, Beobachtungen und eine `Data.lua`-Kandidatin hoch, alles ohne Identitäten.
 - **Budget:** Blizzard erlaubt 36.000 Anfragen pro Stunde. Neue Abfragen brauchen eine Kostenschätzung und, wenn möglich, eine lokale Messung, bevor sie in den Workflow kommen.
 
 ## Releases
@@ -85,6 +85,7 @@ Berührt eine Aufgabe die Dateien einer anderen Rolle, setzt du sie nicht selbst
 - Releases entstehen nur über Tags `v<CalVer>` (z. B. `v2026.10.3`) und `.github/workflows/release.yml`. Der BigWigs-Packager legt das GitHub-Release an (Wago importiert es per Webhook) und lädt dasselbe Paket per `CF_API_KEY` zu CurseForge hoch. Einen CurseForge-Webhook auf `push` gibt es bewusst nicht, weil `Data.lua` im Repo leer ist. Ablauf und Prüfungen: `docs/releasing.md`.
 - Jede Version braucht ein Changelog-Paar `changelog/CHANGELOG-<version>-en.md` und `-de.md`. `CHANGELOG.md` erzeugt nur `tools/generate_changelog.py`.
 - Ein Release packt die `Data.lua` des letzten erfolgreichen Wochenlaufs. `StatCompass/Data.lua` im Repo bleibt leer.
+- Nutzerentscheidung vom **07.10.2026 (#44)**: Bei `AUTO_DATA_RELEASE=true` zu jeder EU-Reset-Woche eine neue geprüfte Version veröffentlichen, auch wenn der vorherige Release weniger als 120 Stunden zurückliegt. Die Wochenregel ersetzt den Fünf-Tage-Abstand aus #10; bestehende Qualitätsprüfungen gelten weiter.
 - Tags setzt ein Agent nur auf ausdrücklichen Auftrag des Nutzers.
 
 ## Texte für Menschen

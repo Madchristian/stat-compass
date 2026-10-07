@@ -2,10 +2,27 @@
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 REQUIRED_QUALITY = ("coverage", "identities", "blizzard_stats", "rights", "retention", "readback")
-FIVE_DAYS = 120 * 3600
+WEEK = 7 * 86400
+
+
+def weekly_window(now):
+    """Start of the current release week: Wednesday 06:30 UTC, after the EU reset."""
+    today = datetime.fromtimestamp(now, timezone.utc)
+    start = today.replace(hour=6, minute=30, second=0, microsecond=0)
+    start -= timedelta(days=(today.weekday() - 2) % 7)
+    if start > today:
+        start -= timedelta(days=7)
+    return int(start.timestamp())
+
+
+def cadence(last, now):
+    """Catch up the current week; further runs wait for the next Wednesday."""
+    start = weekly_window(now)
+    due = last is None or last < start
+    return {"due": due, "windowAt": start, "nextDueAt": start if due else start + WEEK}
 
 
 class GateBlocked(ValueError):
@@ -49,8 +66,7 @@ def evaluate(state):
         raise GateBlocked("invalid release identity")
     key_body = json.dumps([previous, approved, season], separators=(",", ":"))
     key = hashlib.sha256(key_body.encode()).hexdigest()
-    return {"due": last is None or now-last >= FIVE_DAYS, "idempotencyKey": key,
-            "nextDueAt": None if last is None else last+FIVE_DAYS}
+    return {**cadence(last, now), "idempotencyKey": key}
 
 
 def main():

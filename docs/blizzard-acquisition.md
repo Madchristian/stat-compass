@@ -82,7 +82,11 @@ The values describe the gear a player has **equipped now**, not their gear durin
 
 ## GitHub Actions
 
-`.github/workflows/refresh-mplus-data.yml` runs weekly on Wednesday 06:30 UTC, after the EU reset, and on demand. `full_scan` ignores the state. It:
+`.github/workflows/refresh-mplus-data.yml` checks at 06:47, 12:47 and 18:47 UTC daily. Its release
+week begins Wednesday 06:30 UTC, after the EU reset. A missing weekly release stays due on later
+days, so delayed or dropped schedule events can be caught up. Once published, subsequent scheduled
+runs skip acquisition. With automation disabled, the latest successful data artifact marks the
+completed week instead. Manual dispatch always refreshes; `full_scan` ignores the state. A refresh:
 
 1. runs the test suite,
 2. restores the state from the repository's private Actions cache,
@@ -95,6 +99,11 @@ The values describe the gear a player has **equipped now**, not their gear durin
 The artifact contains no identities. Required repository secrets: `BLIZZARD_CLIENT_ID` and `BLIZZARD_CLIENT_SECRET`.
 
 Cost estimate: a full scan is about 10,000–15,000 requests and 10–20 minutes, mostly waiting on the network. An incremental week is 736 boards plus certification.
+
+Planning only calls GitHub, with no Blizzard requests. Acquisition keeps the 36,000-request cap per
+run. Failed runs may retry at the next opportunity, six hours later; the workflow concurrency group
+serializes acquisition and publication. Multiple schedule opportunities do not guarantee delivery
+by GitHub's scheduler.
 
 ## Transport
 

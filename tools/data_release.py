@@ -1,7 +1,9 @@
 """Decide and prepare an automatic data release (issue #10); publishing itself is release.yml.
 
     python tools/data_release.py due --releases releases.json
-        -> {"due": bool, "nextDueAt": ...}: at least 120 hours since the last published release
+        -> {"due": bool, "nextDueAt": ...}: a release for the current EU reset week is missing
+    python tools/data_release.py plan --releases releases.json --automatic true --event schedule
+        -> refresh/release_due decisions, also used for delayed schedule events
     python tools/data_release.py prepare --releases releases.json --report report.json --data Data.lua \
            --tags tags.txt --sha <commit>
         -> runs tools/release_gate.py on a state built from the facts below, picks the next CalVer
@@ -49,8 +51,19 @@ def due(releases, now):
     last, _ = last_release(releases)
     if last is None:
         return {"due": False, "reason": "no release yet: the first release is made by hand"}
-    next_due = last["published_at"] + release_gate.FIVE_DAYS
-    return {"due": now >= next_due, "nextDueAt": next_due}
+    return release_gate.cadence(last["published_at"], now)
+
+
+def plan(releases, now, *, automatic=False, event="schedule", last_refresh=0):
+    """Manual dispatch refreshes; schedules catch up once per week, even on Thursday."""
+    publication, _ = last_release(releases)
+    release_plan = due(releases, now)
+    release_due = automatic and release_plan["due"]
+    refresh_due = release_gate.cadence(last_refresh or None, now)["due"]
+    # With automation enabled the publication is the completion marker. A failed publication
+    # must retry with freshly checked data; with automation off the data artifact is the marker.
+    refresh = event == "workflow_dispatch" or (release_due if automatic and publication else refresh_due)
+    return {"refresh": refresh, "release_due": release_due, **release_plan}
 
 
 def next_version(tags, now):
@@ -120,16 +133,24 @@ def prepare(releases, report, data_path, tags, sha, now, out_dir=CHANGELOG):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=("due", "prepare"))
+    parser.add_argument("command", choices=("due", "plan", "prepare"))
     parser.add_argument("--releases", type=Path, required=True, help="JSON from GET /repos/{repo}/releases")
     parser.add_argument("--report", type=Path)
     parser.add_argument("--data", type=Path)
     parser.add_argument("--tags", type=Path)
     parser.add_argument("--sha")
+    parser.add_argument("--automatic", choices=("true", "false"), default="false")
+    parser.add_argument("--event", choices=("schedule", "workflow_dispatch"), default="schedule")
+    parser.add_argument("--last-refresh", type=int, default=0)
     args = parser.parse_args()
     releases, now = json.loads(args.releases.read_text(encoding="utf-8")), int(time.time())
     if args.command == "due":
         print(json.dumps(due(releases, now)))
+        return
+    if args.command == "plan":
+        result = plan(releases, now, automatic=args.automatic == "true", event=args.event,
+                      last_refresh=args.last_refresh)
+        print(json.dumps(result))
         return
     if not (args.report and args.data and args.tags and args.sha):
         parser.error("prepare needs --report, --data, --tags and --sha")

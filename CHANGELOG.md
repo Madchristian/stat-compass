@@ -4,6 +4,22 @@ This file contains the complete public release history. Every version is listed 
 
 Diese Datei enthält die vollständige öffentliche Release-Historie. Jede Version steht genau einmal, zuerst Englisch, danach Deutsch.
 
+## 2026.10.7
+
+### English
+
+#### Data update
+
+The comparison values now come from the Mythic+ leaderboards up to week 1084 of season 18. 40 specializations and 58 hero talent trees have their own top-player data. This data stays valid until 2026-11-06.
+
+### Deutsch
+
+#### Datenaktualisierung
+
+Die Vergleichswerte stammen jetzt aus den Mythic+-Bestenlisten bis Woche 1084 der Saison 18. 40 Spezialisierungen und 58 Heldentalente haben eigene Daten der Top-Spieler. Die Daten gelten bis 2026-11-06.
+
+---
+
 ## 2026.10.4
 
 ### English

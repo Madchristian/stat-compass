@@ -124,7 +124,7 @@ def test_prepare_writes_a_pair_the_changelog_generator_accepts(tmp_path, monkeyp
 
 def test_prepare_does_not_publish_twice_in_the_same_reset_week(tmp_path):
     tool = load_tool("data_release")
-    now = int(time.time())
+    now = utc("2026-10-07T12:00:00Z")
     result = tool.prepare([release("v2026.10.3", now - 600)], REPORT, dataset(tmp_path, now), [], SHA, now,
                           out_dir=tmp_path)
     assert result["release"] is False and not list(tmp_path.glob("CHANGELOG-*"))
@@ -181,6 +181,8 @@ def test_workflow_decide_step_emits_real_job_outputs(tmp_path, automatic, event,
         "repos/synthetic/repo/actions/workflows/refresh-mplus-data.yml/runs?branch=main&status=success&per_page=30": {
             "workflow_runs": [{"id": 1, "conclusion": "success", "head_branch": "main", "created_at": iso(refreshed)}]},
         "repos/synthetic/repo/actions/runs/1/artifacts": {"artifacts": [{"name": "mplus-data-1", "expired": False}]},
+        "repos/synthetic/repo/actions/runs/1/jobs?filter=all&per_page=100": {"jobs": [
+            {"name": "refresh", "conclusion": "success", "started_at": iso(refreshed)}]},
     }
     fixture = tmp_path / "github.json"
     fixture.write_text(json.dumps(responses))

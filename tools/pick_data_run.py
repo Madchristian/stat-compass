@@ -36,7 +36,7 @@ def main():
     parser.add_argument("--repo", required=True)
     parser.add_argument("--workflow", default="refresh-mplus-data.yml")
     parser.add_argument("--timestamp", action="store_true",
-                        help="print the selected refresh's UTC epoch, or 0 when no data run exists")
+                        help="print the successful refresh job's start epoch, or 0 when no data run exists")
     args = parser.parse_args()
     runs = _gh(f"repos/{args.repo}/actions/workflows/{args.workflow}/runs?branch=main&status=success&per_page=30")
     try:
@@ -50,8 +50,11 @@ def main():
     if skipped:
         print(f"skipped runs without data: {skipped}", file=sys.stderr)
     if args.timestamp:
-        run = next(r for r in runs["workflow_runs"] if r["id"] == run_id)
-        print(int(datetime.strptime(run["created_at"], "%Y-%m-%dT%H:%M:%SZ")
+        jobs = _gh(f"repos/{args.repo}/actions/runs/{run_id}/jobs?filter=all&per_page=100")["jobs"]
+        refresh = max((j for j in jobs if j["name"] == "refresh" and j["conclusion"] == "success"),
+                      key=lambda job: job["started_at"])
+        # Creation can precede the actual acquisition by hours (queueing or a rerun).
+        print(int(datetime.strptime(refresh["started_at"], "%Y-%m-%dT%H:%M:%SZ")
                   .replace(tzinfo=timezone.utc).timestamp()))
     else:
         print(run_id, name)

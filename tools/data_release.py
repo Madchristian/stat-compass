@@ -57,12 +57,13 @@ def due(releases, now):
 def plan(releases, now, *, automatic=False, event="schedule", last_refresh=0):
     """Manual dispatch refreshes; schedules catch up once per week, even on Thursday."""
     publication, _ = last_release(releases)
-    release_due = automatic and due(releases, now)["due"]
+    release_plan = due(releases, now)
+    release_due = automatic and release_plan["due"]
     refresh_due = release_gate.cadence(last_refresh or None, now)["due"]
     # With automation enabled the publication is the completion marker. A failed publication
     # must retry with freshly checked data; with automation off the data artifact is the marker.
     refresh = event == "workflow_dispatch" or (release_due if automatic and publication else refresh_due)
-    return {"refresh": refresh, "release_due": release_due, **due(releases, now)}
+    return {"refresh": refresh, "release_due": release_due, **release_plan}
 
 
 def next_version(tags, now):

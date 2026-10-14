@@ -39,6 +39,7 @@ class FakeClient:
     def __init__(self, responses):
         self.responses, self.calls = responses, []
         self.requests, self.cache_hits, self.status_counts = 0, 0, Counter()
+        self.recovered_status_counts = Counter()
 
     def get(self, path, namespace):
         self.calls.append((path, namespace))
@@ -136,6 +137,7 @@ def test_report_is_identity_free_and_flags_thin_specs():
     for i in range(1, 4):
         responses |= character(i, 62)
     client = FakeClient(responses)
+    client.recovered_status_counts.update({500: 2})
     client.status_counts.update({200: 5, 404: 1, "transport": 2})  # mixed keys must not break the report
     verified = {62: bz.analyze_spec(client, rows, 62, target=3, max_candidates=3, max_level=90)}
     report = bz.build_report(season_id=17, periods=[1001], realms=[1], specs={62: {"name": "Arcane", "class": "Mage", "role": "DAMAGE"},
@@ -150,6 +152,7 @@ def test_report_is_identity_free_and_flags_thin_specs():
     assert arcane["enough"] and arcane["statRanges"]["crit"] == [11.0, 13.0] and arcane["scoreAtTarget"] == 97
     assert not blood["enough"] and blood["rankedCharacters"] == 0
     assert report["specsEnough"] == 1 and report["leaderboards"]["atLargestSize"] == 1
+    assert report["httpRecovered"] == {"500": 2}
     assert report["httpStatus"] == {"200": 5, "404": 1, "transport": 2}
 
 
@@ -586,3 +589,19 @@ def test_walk_replaces_quarantined_players_from_further_down():
     kept, walked, excluded = cert._walk(sorted(range(1, 16)), 62, 12)
     assert excluded == {2: "invalid"}                                              # crit 900 % is impossible
     assert kept == [1] + list(range(3, 14)) and walked == 13
+
+
+@pytest.mark.parametrize("terminal", [{"ok": True}, 404])
+def test_client_records_http_errors_only_after_successful_retry(terminal):
+    client = bz.Client("synthetic", opener=Opener([500, 503, terminal]), sleep=lambda _: None)
+    client.get("/data/wow/connected-realm/index", "dynamic-eu")
+    assert client.recovered_status_counts == Counter({500: 1, 503: 1})
+    assert client.status_counts[500] == 1
+
+
+def test_exhausted_errors_cannot_be_recovered_by_another_request():
+    client = bz.Client("synthetic", opener=Opener([500, 500, {}]), max_attempts=2, sleep=lambda _: None)
+    with pytest.raises(bz.TransportError):
+        client.get("/data/wow/connected-realm/index", "dynamic-eu")
+    client.get("/data/wow/connected-realm/1", "dynamic-eu")
+    assert client.recovered_status_counts == Counter()

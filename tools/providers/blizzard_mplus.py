@@ -106,6 +106,7 @@ class Client:
         self.max_attempts, self.wait_budget, self.sleep, self.clock = max_attempts, wait_budget, sleep, clock
         self.lock, self.next_slot, self.requests, self.cache_hits = threading.Lock(), 0.0, 0, 0
         self.status_counts = Counter()
+        self.recovered_status_counts = Counter()
 
     def _cache_path(self, url):
         name = re.sub(r"[^A-Za-z0-9._-]+", "_", urlsplit(url).path.strip("/") + "_" + urlsplit(url).query)
@@ -128,6 +129,7 @@ class Client:
         if cached and cached.exists():
             self.cache_hits += 1
             return json.loads(cached.read_text(encoding="utf-8"))["body"]
+        pending_status_counts = Counter()
         for attempt in range(self.max_attempts):
             self._slot()
             try:
@@ -141,6 +143,8 @@ class Client:
                     break
             except HTTPError as exc:
                 self.status_counts[exc.code] += 1
+                if exc.code != 404:
+                    pending_status_counts[exc.code] += 1
                 if exc.code == 404:
                     body = None
                     break
@@ -159,6 +163,9 @@ class Client:
                 if attempt + 1 == self.max_attempts:
                     raise TransportError("network unavailable") from None
                 self.sleep(2 ** attempt)
+        # Only a completed 200/404 response proves this request recovered.
+        with self.lock:
+            self.recovered_status_counts.update(pending_status_counts)
         if cached:
             cached.parent.mkdir(parents=True, exist_ok=True)
             cached.write_text(json.dumps({"url": url, "body": body}, ensure_ascii=False), encoding="utf-8")
@@ -904,6 +911,7 @@ def build_report(*, season_id, periods, realms, specs, scan_stats, ranking, fall
             "requests": client.requests, "cacheHits": client.cache_hits,
             "weeksFromState": scan_stats.get("weeksFromState", 0),
             "httpStatus": {str(k): v for k, v in sorted(client.status_counts.items(), key=lambda kv: str(kv[0]))},
+            "httpRecovered": {str(k): v for k, v in sorted(client.recovered_status_counts.items())},
             "specs": rows}
 
 

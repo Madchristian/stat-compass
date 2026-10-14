@@ -10,13 +10,13 @@ Diese Datei enthält die vollständige öffentliche Release-Historie. Jede Versi
 
 #### Fixed
 
-- Updated the interface version to 120105 for WoW 12.1.5 so the addon is no longer marked as out of date.
+- Updated the interface version to 120105 for WoW 12.1.5 so the addon is no longer marked as out of date. ([#46](https://github.com/Madchristian/stat-compass/pull/46))
 
 ### Deutsch
 
 #### Behoben
 
-- Interface-Version auf 120105 für WoW 12.1.5 aktualisiert, damit das Addon nicht mehr als veraltet angezeigt wird.
+- Interface-Version auf 120105 für WoW 12.1.5 aktualisiert, damit das Addon nicht mehr als veraltet angezeigt wird. ([#46](https://github.com/Madchristian/stat-compass/pull/46))
 
 ---
 

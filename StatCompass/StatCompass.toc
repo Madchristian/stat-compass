@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120105
 ## Title: Stat Compass
 ## IconTexture: Interface\AddOns\StatCompass\icon
 ## Notes: Character equipment secondary stat comparison

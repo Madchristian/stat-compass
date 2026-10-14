@@ -32,7 +32,7 @@ def dataset(tmp_path, now, specs=36):
     for entry in source["specs"].values():
         for row in entry["observations"]:
             row["observedAt"] = now - 600
-    manifest, _ = generator.manifest(source, interface=120100, client_build=69933, level=90, now=now)
+    manifest, _ = generator.manifest(source, interface=120105, client_build=70391, level=90, now=now)
     data = build.checked(manifest, json.dumps(source).encode(), now=now)
     path = tmp_path / "Data.lua"
     path.write_text("StatCompass.releaseData = " + build.lua_value(data) + "\n", encoding="utf-8")

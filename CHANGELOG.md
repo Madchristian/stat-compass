@@ -4,6 +4,22 @@ This file contains the complete public release history. Every version is listed 
 
 Diese Datei enthält die vollständige öffentliche Release-Historie. Jede Version steht genau einmal, zuerst Englisch, danach Deutsch.
 
+## 2026.10.14
+
+### English
+
+#### Fixed
+
+- Updated the interface version to 120105 for WoW 12.1.5 so the addon is no longer marked as out of date.
+
+### Deutsch
+
+#### Behoben
+
+- Interface-Version auf 120105 für WoW 12.1.5 aktualisiert, damit das Addon nicht mehr als veraltet angezeigt wird.
+
+---
+
 ## 2026.10.7
 
 ### English

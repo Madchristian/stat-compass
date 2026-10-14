@@ -68,12 +68,12 @@ def test_release_data_accepts_valid_and_rejects_empty_or_short_lived(tmp_path):
     for entry in source["specs"].values():
         for row in entry["observations"]:
             row["observedAt"] = now - 600
-    manifest, _ = dataset.manifest(source, interface=120100, client_build=69933, level=90, now=now)
+    manifest, _ = dataset.manifest(source, interface=120105, client_build=70391, level=90, now=now)
     data = build.checked(manifest, json.dumps(source).encode(), now=now)
     good = tmp_path / "Data.lua"
     good.write_text("StatCompass.releaseData = " + build.lua_value(data) + "\n", encoding="utf-8")
     info = tool.check(good, now=now, min_days=7, min_cohorts=3)
-    assert info["cohorts"] == 3 and info["clientBuild"] == 69933 and info["daysLeft"] > 29
+    assert info["cohorts"] == 3 and info["clientBuild"] == 70391 and info["daysLeft"] > 29
     with pytest.raises(ValueError, match="expires"):
         tool.check(good, now=now, min_days=31, min_cohorts=3)
     with pytest.raises(ValueError, match="cohorts"):

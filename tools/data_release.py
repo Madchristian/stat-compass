@@ -81,7 +81,18 @@ def next_version(tags, now):
 
 def quality(report, data_path, now):
     data_bytes = Path(data_path).read_bytes()
-    statuses = set(report.get("httpStatus", {}))
+    statuses = report.get("httpStatus", {})
+    recovered = report.get("httpRecovered") or {}
+    retryable = {"429", "500", "502", "503", "504"}
+    http_ok = isinstance(statuses, dict) and bool(statuses) and isinstance(recovered, dict)
+    if http_ok:
+        http_ok = all(
+            status in {"200", "404", "transport"} or (
+                status in retryable and type(count) is int and count > 0
+                and type(recovered.get(status)) is int and recovered[status] == count
+            )
+            for status, count in statuses.items()
+        )
     try:
         info = release_data.check(data_path, now=now, min_days=7, min_cohorts=MIN_SPECS)
     except ValueError:
@@ -89,7 +100,7 @@ def quality(report, data_path, now):
     return {
         "coverage": report.get("specsEnough", 0) >= MIN_SPECS and report.get("specsTotal", 0) >= MIN_SPECS,
         "identities": not IDENTITY_KEYS.search(data_bytes),
-        "blizzard_stats": bool(statuses) and statuses <= {"200", "404", "transport"},
+        "blizzard_stats": http_ok,
         "rights": True,       # Blizzard Developer API terms, see docs/blizzard-acquisition.md
         "retention": info is not None,
         "readback": True,     # replaced below by the previous release's verified package

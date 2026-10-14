@@ -205,3 +205,23 @@ def test_workflow_decide_step_emits_real_job_outputs(tmp_path, automatic, event,
     assert result.returncode == 0, result.stderr
     assert output.read_text() == expected
     assert "release window:" in summary.read_text()
+
+
+@pytest.mark.parametrize("recovered, expected", [
+    ({"500": 2}, True), ({"500": 1}, False), ({}, False),
+    ({"500": 3}, False), ({"500": "2"}, False), (None, False),
+])
+def test_quality_requires_proof_for_every_retried_http_error(tmp_path, recovered, expected):
+    tool = load_tool("data_release")
+    now = int(time.time())
+    report = {**REPORT, "httpStatus": {"200": 10, "500": 2}, "httpRecovered": recovered}
+    checks, _ = tool.quality(report, dataset(tmp_path, now), now)
+    assert checks["blizzard_stats"] is expected
+
+
+def test_recovered_authorization_error_still_blocks_release(tmp_path):
+    tool = load_tool("data_release")
+    now = int(time.time())
+    report = {**REPORT, "httpStatus": {"200": 10, "403": 1}, "httpRecovered": {"403": 1}}
+    checks, _ = tool.quality(report, dataset(tmp_path, now), now)
+    assert checks["blizzard_stats"] is False

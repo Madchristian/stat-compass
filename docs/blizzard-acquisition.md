@@ -110,3 +110,16 @@ by GitHub's scheduler.
 - Allowlisted host and namespaces, no redirects, 8 MiB response cap, at most 40 requests per second.
 - Retries on 429/5xx with `Retry-After`, and on transport failures: connection errors, read timeouts, truncated bodies.
 - A 404 is a documented answer (missing week, deleted character), not a failure.
+
+### Recovered HTTP errors in release reports
+
+`httpStatus` counts all HTTP attempts, including failed attempts that were retried.
+`httpRecovered` counts those HTTP errors only after the same request eventually returns
+200 or the documented 404 response. It contains status codes and counts, never endpoints
+or character identities. For example, `"httpStatus": {"200": 10, "500": 2}` with
+`"httpRecovered": {"500": 2}` proves both server errors were recovered.
+
+The automatic release gate accepts 429, 500, 502, 503 and 504 only when every occurrence
+has matching recovery evidence. Exhausted retries, partial recovery and old reports
+without recovery evidence still block publication. Other HTTP error codes remain blocked.
+The existing handling of 200, 404 and transport counters is unchanged.

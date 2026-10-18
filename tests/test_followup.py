@@ -38,11 +38,11 @@ def runtime_with_data(locale=None):
     return lua
 
 
-def test_expiry_and_build_fail_closed():
+def test_expiry_and_older_client_build_fail_closed():
     lua = runtime_with_data()
     run(lua, f'''
       assert(StatCompass.GetTarget(71,"mythic").mastery==199)
-      GetBuildInfo=function() return "12.1.0","69934","synthetic",120100 end
+      GetBuildInfo=function() return "12.1.0","69932","synthetic",120100 end
       assert(StatCompass.GetTarget(71,"mythic")==nil)
       GetBuildInfo=function() return "12.1.0","69933","synthetic",120100 end
       GetServerTime=function() return {NOW+1000} end

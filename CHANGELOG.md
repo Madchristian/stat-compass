@@ -4,6 +4,24 @@ This file contains the complete public release history. Every version is listed 
 
 Diese Datei enthält die vollständige öffentliche Release-Historie. Jede Version steht genau einmal, zuerst Englisch, danach Deutsch.
 
+## 2026.10.18
+
+### English
+
+#### Fixed
+
+- Comparison values remain available after WoW updates to a newer build on the same interface version. Previously, such an update could hide all comparison values even while the dataset was still valid. ([#48](https://github.com/Madchristian/stat-compass/pull/48))
+- Expired data, different interface versions and clients older than the source build remain unsupported.
+
+### Deutsch
+
+#### Behoben
+
+- Vergleichswerte bleiben nach WoW-Updates mit höherer Buildnummer innerhalb derselben Interface-Version sichtbar. Bisher konnte ein solches Update alle Vergleichswerte ausblenden, obwohl die Daten noch gültig waren. ([#48](https://github.com/Madchristian/stat-compass/pull/48))
+- Abgelaufene Daten, abweichende Interface-Versionen und Clients mit älterer Buildnummer bleiben gesperrt.
+
+---
+
 ## 2026.10.14-2
 
 ### English

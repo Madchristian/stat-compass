@@ -184,7 +184,10 @@ function A.ValidateDataset(data, interface, clientBuild, level, now)
   if not public(data) or type(data) ~= "table" then return false end
   if not same(data.schema,3) or not integer(data.interface, 1, 999999) or not integer(data.clientBuild,1,9999999) or not integer(data.level, 1, 1000) then return false end
   if interface and not same(data.interface,interface) then return false end
-  if clientBuild and not same(data.clientBuild,clientBuild) then return false end
+  -- Interface versions bound runtime compatibility; a newer hotfix build may use
+  -- this snapshot. Keep source builds exact inside the dataset for provenance.
+  if not public(clientBuild) then return false end
+  if clientBuild ~= nil and (not integer(clientBuild,1,9999999) or clientBuild < data.clientBuild) then return false end
   if level and not same(data.level,level) then return false end
   if not integer(now, 1000000000, 9999999999) then return false end
   if not integer(data.collectedAt,1000000000,9999999999) or not integer(data.observedAt,1000000000,9999999999) or not integer(data.expiresAt,1000000000,9999999999) then return false end
